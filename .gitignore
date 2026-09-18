@@ -14,3 +14,7 @@ build/
 
 # 本地临时（截图/日志/中间产物，不进仓库）
 .tmp/
+
+# 调试残渣（曾误提交过一次）
+*.tmppetlife.log
+petlife.log
