@@ -339,6 +339,33 @@ test('launchPet：同客户端已有桌宠时接管（补写锁、不重复开�
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('双击启动器 start-pet.cmd：存在、纯 ASCII、指向真实启动器', () => {
+  const f = p('start-pet.cmd')
+  assert.ok(existsSync(f), '缺 start-pet.cmd（README 里让用户双击它启动桌宠）')
+  const src = readFileSync(f, 'utf8')
+  assert.match(src, /deskpet-guard-pet\.js/, '没指向 bin/deskpet-guard-pet.js')
+  assert.match(src, /--client dsh/, '默认 client 丢了')
+  // 血案：GBK 双字节尾字节可能是 & 或 |，cmd 会把后半行当命令 → 必须纯 ASCII
+  assert.ok(!/[^ -]/.test(src), 'start-pet.cmd 必须纯 ASCII（中文请写进 README）')
+})
+
+test('MCP 声明用 @latest（否则 npx 会把旧版本缓存住，用户看到旧界面）', () => {
+  for (const rel of ['deskpet-guard/.mcp.json', 'deskpet-guard/.zcode-plugin/plugin.json', 'deskpet-guard/.claude-plugin/plugin.json']) {
+    const src = readFileSync(p(rel), 'utf8')
+    const m = JSON.parse(src)
+    const servers = m.mcpServers || {}
+    const args = servers['deskpet-guard'] && servers['deskpet-guard'].args
+    if (!args) continue
+    assert.ok(args.includes('deskpet-guard@latest'), rel + ' 必须写 @latest：npx 缓存会钉住旧版本（真实踩过，用户看到旧界面）')
+  }
+})
+
+test('ZCode hook 取最新脚本副本（cache/ 与 marketplaces/ 会有多份）', () => {
+  const j = JSON.parse(readFileSync(p('deskpet-guard/hooks/hooks.json'), 'utf8'))
+  const line = j.hooks.events.SessionStart[0].hooks[0].args.join(' ')
+  assert.match(line, /Sort-Object LastWriteTime -Descending/, '必须按时间取最新，不能拿第一个（可能命中旧缓存副本）')
+})
+
 for (const [n, f] of cases) {
   try {
     f()

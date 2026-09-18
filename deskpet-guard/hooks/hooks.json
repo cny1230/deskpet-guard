@@ -14,7 +14,7 @@
                 "-ExecutionPolicy",
                 "Bypass",
                 "-Command",
-                "$s = Get-ChildItem -Path (Join-Path $env:USERPROFILE '.zcode') -Recurse -Filter 'deskpet-guard-pet.ps1' -ErrorAction SilentlyContinue | Select-Object -First 1; if (-not $s) { exit 0 }; Start-Process -WindowStyle Hidden -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-STA','-ExecutionPolicy','Bypass','-File', $s.FullName, '-Client','zcode','-WatchProcess','ZCode')"
+                "$s = Get-ChildItem -Path (Join-Path $env:USERPROFILE '.zcode') -Recurse -Filter 'deskpet-guard-pet.ps1' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if (-not $s) { exit 0 }; Start-Process -WindowStyle Hidden -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-STA','-ExecutionPolicy','Bypass','-File', $s.FullName, '-Client','zcode','-WatchProcess','ZCode')"
               ],
               "timeoutMs": 25000,
               "statusMessage": "deskpet-guard 桌宠启动中"

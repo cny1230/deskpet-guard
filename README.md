@@ -254,6 +254,39 @@ test/*.mjs        8 个离线套件；test/dom-shim.mjs 是跑面板用的极简
 `test/` 里的 `client-bundle.test.mjs` 也会检查 `package.json` 的入口/类型/bin 指针**不悬空**
 （第一版就犯过"`exports["./client"]` 指向一个不存在的 `lib/client.js`"）。
 
+## 桌宠：怎么开、怎么关
+
+桌宠是**独立桌面窗口**（Windows / PowerShell + WinForms，零依赖），每个客户端各一只。
+它不在客户端 UI 里渲染——因为 ZCode / Claude Code 这类 agent 的插件 API 只提供
+skills / commands / agents / hooks / MCP，**没有"往界面插悬浮组件"的能力**。
+
+**自动拉起**：
+
+| 场景 | 机制 |
+|---|---|
+| DSH | 宿主插件在第一次 tick 时拉起，看护对象 = 宿主自己 → 宿主退出它自己关 |
+| ZCode | 插件 `hooks/hooks.json` 的 `SessionStart`（刷新市场后生效） |
+| 任何 MCP 客户端 | 它的 MCP server 启动时顺带拉起（`.mcp.json` → `npx deskpet-guard`） |
+
+**手动开/关**（随时可用，不必等客户端）：
+
+```bash
+node bin/deskpet-guard-pet.js --client dsh      # 开：DSH 桌宠（自动看护 DSH 宿主）
+node bin/deskpet-guard-pet.js --client zcode    # 开：ZCode 桌宠（按进程名看护 ZCode）
+node bin/deskpet-guard-pet.js --status          # 只看文字状态，不开窗
+node bin/deskpet-guard-pet.js --list            # 现在有哪几只、看护谁
+node bin/deskpet-guard-pet.js --stop all        # 一次全关（含没有锁文件的孤儿）
+```
+
+Windows 上也可以**双击仓库根目录的 `start-pet.cmd`**（默认起 DSH 桌宠，可带参数，如
+`start-pet.cmd --client zcode`）。
+
+**手动关掉之后**：不会自己弹回来（关闭是你的明确意图，宿主不会跟你抢）。
+想再开就上面任意一条命令 / 双击 `start-pet.cmd`；ZCode 侧重启 ZCode 也会重新拉起。
+
+> ⚠️ `start-pet.cmd` **必须保持纯 ASCII**：批处理按控制台代码页读取，GBK 双字节字符的
+> 尾字节可能撞上 `&`/`|`，cmd 会把后半行当命令执行（踩过，报错很迷惑）。测试里有守卫。
+
 ## 测试
 
 ```bash

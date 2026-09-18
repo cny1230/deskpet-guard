@@ -17,7 +17,7 @@
   "mcpServers": {
     "deskpet-guard": {
       "command": "npx",
-      "args": ["-y", "deskpet-guard"],
+      "args": ["-y", "deskpet-guard@latest"],
       "timeoutMs": 90000
     }
   }

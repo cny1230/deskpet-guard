@@ -74,11 +74,13 @@ test('MCP 声明指向已发布的 npm 包（能力不是空壳）', () => {
   const entry = zj.mcpServers[pkg.name]
   assert.ok(entry, 'mcpServers 里没有以包名命名的 server')
   assert.equal(entry.command, 'npx')
-  assert.deepEqual(entry.args, ['-y', pkg.name], 'MCP 的 args 必须拉起本包: npx -y ' + pkg.name)
+  assert.equal(entry.args[0], '-y')
+  // 允许并推荐 @latest：不带版本时 npx 会缓存旧版本，用户看到旧界面（真实踩过）
+  assert.ok(entry.args[1] === pkg.name || entry.args[1] === pkg.name + '@latest', 'MCP 的 args 必须拉起本包: npx -y ' + pkg.name)
 
   const mcp = readJson(`${pkg.name}/.mcp.json`)
   assert.ok(mcp.mcpServers && mcp.mcpServers[pkg.name], '.mcp.json 里没有本包的 server')
-  assert.deepEqual(mcp.mcpServers[pkg.name].args, ['-y', pkg.name])
+  assert.ok(['' + pkg.name, pkg.name + '@latest'].includes(mcp.mcpServers[pkg.name].args[1]))
 })
 
 test('skill 有合法 frontmatter（name + description），路径符合 skills/<名字>/SKILL.md', () => {
