@@ -310,20 +310,23 @@ node test/mcp-stdio.test.mjs  # 只跑 MCP 传输层（单请求单响应 / clos
 |---|---|---|
 | GitHub 仓库 | ✅ 已发布 | <https://github.com/cny1230/deskpet-guard>（public，CI 绿） |
 | `dsh plugin add github:…` | ✅ 可用 | 本包带 `cordis.patch.yml` + `dsh.bundle.patch`，标准安装路径能装 |
-| GitHub topic `dsh-plugin` | ⏳ 待打 | dsh.so 这类注册中心靠该 topic **自动索引**仓库；现在还没打 |
+| GitHub topic `dsh-plugin` 等 9 个 | ✅ 已打 | 已被 GitHub 搜索索引；`topic:dsh-plugin` 下有 1.5 万仓库且按 star 排序，0★ 新仓库不会出现在列表首页，但按名字搜得到 |
 | npm 包 | ⏳ 未发布 | `deskpet-guard` / `@cny1230/deskpet-guard` 名字都还空着；当前 `"private": true` 会挡住发布 |
-| dsh.so / awesome-dsh-plugin 收录 | ⏳ 待提交 | 要求 = topic + 合法 cordis manifest + SPDX 许可 + 可验证的 install 命令（后三项已满足） |
+| dsh.so / awesome-dsh-plugin 收录 | ⏳ 待提交 | 要求 = topic ✔ + 合法 cordis manifest ✔ + SPDX 许可 ✔ + 可验证的 install 命令 ✔；剩下的只是到它们站点走 Submit |
 
-**差的三步**（都很快，但需要账号态操作）：
+**还差的两步**（都需要账号态操作）：
 
-1. 仓库 Settings → Topics 加：`dsh-plugin`、`dsh`、`deepseek-harness`、`mcp`、`mcp-server`、`agent-security`
-   —— 打上 `dsh-plugin` 就会被注册中心自动索引；
-2. 想上 npm：删掉 `package.json` 里的 `"private": true` → `npm publish`
-   （若要按包名装，建议把 `@dsh-external/…` 改成你自己可发布的 scope，如 `@cny1230/…`）；
-3. 到 dsh.so / awesome-dsh-plugin 的 Submit 页提交仓库链接。
+1. **提交收录**：到 <https://www.dsh.so/submit/> 与 awesome-dsh-plugin 提交仓库链接
+   （它的收录是 topic 自动索引 + 人工 Submit 双轨；自动索引有周期，刚打上 topic 时
+   `https://www.dsh.so/artifact/deskpet-guard/` 还是 404）；
+2. **想上 npm**（可选，但很多 MCP 目录要求 npm 包）：删掉 `package.json` 里的 `"private": true`
+   → `npm publish`（若要按包名装，建议把 `@dsh-external/…` 换成你自己可发布的 scope，如 `@cny1230/…`）。
 
 在此之前，"能用"的路径是：**GitHub 直装**（`dsh plugin --profile web add github:cny1230/deskpet-guard`）
 或 **MCP 直连**（`node <repo>/bin/deskpet-guard-mcp.js`）。
+
+> 剩余步骤的逐步操作、发布前自检清单、以及"两条安装路径别同时用"的说明，见
+> **[docs/PUBLISHING.md](docs/PUBLISHING.md)**。
 
 ## 许可
 
