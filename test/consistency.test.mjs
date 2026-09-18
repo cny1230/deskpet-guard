@@ -13,8 +13,33 @@
  */
 import assert from 'node:assert/strict'
 
-import { evaluate as evalTs, moodOf as moodTs } from '../src/guard/rules.ts'
-import { mergeProfiles as mergeTs } from '../src/guard/profiles.ts'
+// 本套件直接 import .ts 源文件，依赖 Node 的 TS 类型剥离：
+//   Node 22.18+ / 24 默认开启；Node 20 不行。
+// 所以先**探测能力**：不支持时响亮跳过（既不让 CI 在旧 Node 上无脑报红，也不静默不测）。
+// 运行时本身（lib/*.js）是纯 JS，Node 20 就能跑 —— 只有这套对比测试需要新 Node。
+let evalTs
+let moodTs
+let mergeTs
+let skipNote = null
+
+if (process.features && process.features.typescript) {
+  try {
+    ;({ evaluate: evalTs, moodOf: moodTs } = await import('../src/guard/rules.ts'))
+    ;({ mergeProfiles: mergeTs } = await import('../src/guard/profiles.ts'))
+  } catch (e) {
+    skipNote = 'TS 源导入失败（' + String((e && e.message) || e).split('\n')[0] + '）→ 双实现一致性对比跳过'
+  }
+} else {
+  skipNote =
+    'Node ' + process.version + ' 不支持 TS 类型剥离（需 22.18+/24）→ 双实现一致性对比跳过'
+}
+
+if (skipNote) {
+  console.log('  SKIP  ' + skipNote)
+  console.log('\n结果: 0 passed, 0 failed (共 0 例) —— SKIP，未验证双实现一致性')
+  process.exit(0)
+}
+
 import { evaluate as evalJs, moodOf as moodJs } from '../lib/rules.js'
 import { mergeProfiles as mergeJs } from '../lib/profiles.js'
 

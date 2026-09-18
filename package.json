@@ -18,6 +18,14 @@
     "LICENSE"
   ],
   "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cny1230/deskpet-guard.git"
+  },
+  "homepage": "https://github.com/cny1230/deskpet-guard#readme",
+  "bugs": {
+    "url": "https://github.com/cny1230/deskpet-guard/issues"
+  },
   "engines": {
     "node": ">=20"
   },

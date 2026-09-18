@@ -16,6 +16,8 @@
 | 许可 | BSD-3-Clause |
 | 测试 | 全离线套件，不联网、不杀进程、不需要 DSH |
 
+![CI](https://github.com/cny1230/deskpet-guard/actions/workflows/ci.yml/badge.svg)
+
 ![面板与桌宠](docs/assets/deskpet-panel.png)
 
 ---
@@ -73,7 +75,7 @@
 ### 方式一：装进 DSH（插件形态，推荐）
 
 ```bash
-git clone <this-repo> D:/deskpet-guard
+git clone https://github.com/cny1230/deskpet-guard.git D:/deskpet-guard
 
 # 在 DSH 会话里（注入器环境）：
 #   dev_inject_plugin {"dir":"D:/deskpet-guard"}

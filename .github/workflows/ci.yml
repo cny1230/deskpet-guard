@@ -1,0 +1,37 @@
+# CI：零依赖项目，直接跑离线套件（不联网、不杀进程、不需要 DSH）
+#
+# 为什么要跨平台/跨版本：
+#   · 运行时 lib/*.js 目标是 Node 20+，但 test/consistency.test.mjs 要 import .ts，
+#     依赖 Node 22.18+/24 的 TS 类型剥离 —— 那套测试在旧 Node 上会响亮 SKIP（不是失败）。
+#   · 探针只在 Windows 上有实现，但规则引擎/API/MCP/面板都是跨平台的离线测试，
+#     所以在 ubuntu 上也应当全绿；windows-latest 额外覆盖路径分隔符一类的坑。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: tests (node ${{ matrix.node }} / ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # 没有依赖要装：package.json 的 devDependencies 只在做 TS 构建时才需要
+      - name: 交付 JS 语法自检
+        run: npm run check
+      - name: 离线测试全套
+        run: npm test
