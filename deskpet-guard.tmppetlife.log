@@ -1,0 +1,9 @@
+[00:01:33.765] before ShowDialog 37900
+[00:01:33.927] about to ShowDialog
+[00:01:33.931] calling ShowDialog now
+[00:01:33.972] Shown event
+[00:01:35.779] tick watched=true, misses=0
+[00:01:37.763] tick watched=true, misses=0
+[00:01:39.765] tick watched=true, misses=0
+[00:01:41.770] tick watched=true, misses=0
+[00:01:43.770] tick watched=true, misses=0

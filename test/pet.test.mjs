@@ -12,7 +12,19 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'no
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { readPetState, petStatusText, launchPet, stopPet, listPetLocks, PET_FACES, PET_CLIENTS, detectClient } from '../lib/pet.js'
+import {
+  readPetState,
+  petStatusText,
+  launchPet,
+  stopPet,
+  listPetLocks,
+  PET_FACES,
+  PET_CLIENTS,
+  detectClient,
+  resolveWatchTarget,
+  parsePetCmdline,
+  findRunningPets,
+} from '../lib/pet.js'
 
 let pass = 0
 let fail = 0
@@ -157,7 +169,7 @@ test('不同客户端各开一只（DSH 有、ZCode 也有），互不顶掉', (
   const again = launchPet({ dataDir: dir, client: 'dsh', spawnImpl: fake('dsh') })
   assert.equal(again.skipped, true, '同一客户端不该开出第二只')
   assert.equal(spawned.length, 2)
-  const locks = listPetLocks(dir)
+  const locks = listPetLocks(dir, { processTable: [] })
   assert.deepEqual(locks.map((x) => x.client).sort(), ['dsh', 'zcode'])
   rmSync(dir, { recursive: true, force: true })
 })
@@ -203,10 +215,10 @@ test('stopPet all：一次关掉所有客户端的桌宠', () => {
   for (const c of ['zcode', 'dsh']) {
     writeFileSync(join(dir, `pet-${c}.lock`), JSON.stringify({ pid: 999998, at: Date.now(), client: c }))
   }
-  const r = stopPet(dir, 'all')
+  const r = stopPet(dir, 'all', { processTable: [] })
   assert.equal(r.ok, true)
   assert.equal(r.closed.length, 2, '应关掉两只')
-  assert.equal(listPetLocks(dir).length, 0, '锁都该清掉')
+  assert.equal(listPetLocks(dir, { processTable: [] }).length, 0, '锁都该清掉')
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -246,6 +258,85 @@ test('MCP server 启动时会顺带拉起桌宠（"启动 agent 就看到"），
   assert.match(src, /launchPet\(\{[\s\S]{0,160}?reason: 'mcp-start'/, 'mcp.js 没在启动时拉起桌宠')
   assert.match(src, /client: opts\.client \|\| detectClient\(\)/, 'mcp.js 拉起桌宠时没带上客户端身份（各自都要有一只）')
   assert.match(src, /DESKPET_GUARD_NO_PET/, '缺少关闭开关（测试/无头环境需要）')
+})
+
+test('看护对象解析：DSH 用宿主 pid（关 DSH → 桌宠跟着关）', () => {
+  const t = resolveWatchTarget({ client: 'dsh', endpoint: { pid: 4242 }, processTable: [] })
+  assert.equal(t.pid, 4242)
+  assert.match(t.why, /endpoint/)
+})
+
+test('看护对象解析：已知客户端按进程名看护（对 npx/cmd 壳免疫）', () => {
+  const table = [
+    { pid: 111, ppid: 1, name: 'ZCode.exe', cmd: 'ZCode.exe' },
+    { pid: 222, ppid: 111, name: 'cmd.exe', cmd: 'cmd /c npx -y deskpet-guard' },
+    { pid: 333, ppid: 222, name: 'node.exe', cmd: 'node mcp.js' },
+  ]
+  const t = resolveWatchTarget({ client: 'zcode', selfPid: 333, processTable: table })
+  assert.equal(t.process, 'ZCode', '要按名字看护，而不是拿 npx/cmd 的 pid')
+  assert.equal(t.pid, 111)
+})
+
+test('看护对象解析：不认识的客户端沿父链跳过短命壳（npx/cmd 不算客户端）', () => {
+  const table = [
+    { pid: 900, ppid: 1, name: 'some-client.exe', cmd: 'some-client.exe' },
+    { pid: 901, ppid: 900, name: 'cmd.exe', cmd: 'cmd /c npx -y deskpet-guard' },
+    { pid: 902, ppid: 901, name: 'node.exe', cmd: 'node mcp.js' },
+  ]
+  const t = resolveWatchTarget({ client: 'mcp', selfPid: 902, processTable: table })
+  assert.equal(t.pid, 900, '应跳过 cmd.exe 这个壳，选真客户端')
+  assert.match(t.why, /some-client/)
+})
+
+test('看护对象解析：解析不出来就如实说（不假装能自动关）', () => {
+  const t = resolveWatchTarget({ client: 'mcp', selfPid: 555, processTable: [] })
+  assert.equal(t.pid || 0, 0)
+  assert.match(t.why, /不会自动关闭/)
+})
+
+
+test('从命令行认出桌宠：解析 client 与看护对象（不再只信锁文件）', () => {
+  const cmd =
+    '"C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" -NoProfile -STA -ExecutionPolicy Bypass -File D:/deskpet-guard/bin/deskpet-guard-pet.ps1 -DataDir C:/x -Client dsh -Slot 3 -WatchPid 47848 '
+  const p = parsePetCmdline(cmd)
+  assert.equal(p.client, 'dsh')
+  assert.equal(p.watchPid, 47848)
+  assert.equal(parsePetCmdline('C:/Windows/explorer.exe'), null, '无关进程不能被误判成桌宠')
+})
+
+test('findRunningPets：锁丢了也能按进程发现孤儿桌宠', () => {
+  const table = [
+    { pid: 10, ppid: 1, name: 'powershell.exe', cmd: 'powershell -File D:/x/bin/deskpet-guard-pet.ps1 -Client zcode -Slot 0' },
+    { pid: 11, ppid: 1, name: 'powershell.exe', cmd: 'powershell -File D:/x/bin/deskpet-guard-pet.ps1 -Client dsh -Slot 3' },
+    { pid: 12, ppid: 1, name: 'explorer.exe', cmd: 'C:/Windows/explorer.exe' },
+  ]
+  const pets = findRunningPets(table)
+  assert.equal(pets.length, 2, '应认出两只桌宠')
+  assert.deepEqual(pets.map((p) => p.client).sort(), ['dsh', 'zcode'])
+})
+
+test('launchPet：同客户端已有桌宠时接管（补写锁、不重复开）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'deskpet-guard-pet-adopt-'))
+  let spawned = 0
+  const table = [
+    { pid: 4242, ppid: 1, name: 'powershell.exe', cmd: 'powershell -File D:/x/bin/deskpet-guard-pet.ps1 -Client zcode -Slot 0' },
+  ]
+  const r = launchPet({
+    dataDir: dir,
+    client: 'zcode',
+    processTable: table,
+    spawnImpl: () => {
+      spawned++
+      return { pid: 1, unref() {} }
+    },
+  })
+  if (process.platform === 'win32') {
+    assert.equal(r.skipped, true, '应按进程发现并接管，而不是再开一只')
+    assert.equal(spawned, 0)
+    assert.equal(r.pid, 4242)
+    assert.ok(existsSync(join(dir, 'pet-zcode.lock')), '接管后应补写锁')
+  }
+  rmSync(dir, { recursive: true, force: true })
 })
 
 for (const [n, f] of cases) {

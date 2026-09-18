@@ -110,9 +110,9 @@ test('桌宠视图：有归属数据时只显示自己那家（含未归属提�
       probeErrors: [],
       killTargets: [],
       perAgent: {
-        zcode: { alerts: 1, critical: 1, high: 0, medium: 0, low: 0, info: 0, targets: 1, findings: [] },
-        dsh: { alerts: 0, critical: 0, high: 0, medium: 0, low: 0, info: 0, targets: 0, findings: [] },
-        unknown: { alerts: 2, critical: 1, high: 0, medium: 0, low: 0, info: 0, targets: 0, findings: [] },
+        zcode: { alerts: 1, critical: 1, high: 0, medium: 0, low: 0, info: 0, targets: 1, procs: 3, egress: 1, bundles: 0, findings: [] },
+        dsh: { alerts: 0, critical: 0, high: 0, medium: 0, low: 0, info: 0, targets: 0, procs: 0, egress: 0, bundles: 0, findings: [] },
+        unknown: { alerts: 2, critical: 1, high: 0, medium: 0, low: 0, info: 0, targets: 0, procs: 0, egress: 4, bundles: 2, findings: [] },
       },
     }),
   )
@@ -129,7 +129,10 @@ test('桌宠视图：有归属数据时只显示自己那家（含未归属提�
   const d = readPetState(dir, { client: 'dsh' })
   assert.equal(d.mine.alerts, 0, 'DSH 的桌宠不该看到 ZCode 的告警')
   assert.match(d.headline, /DSH/)
-  assert.match(petStatusText(dir, { client: 'dsh' }), /本客户端【dsh】告警 0/)
+  const txt = petStatusText(dir, { client: 'dsh' })
+  assert.match(txt, /本 agent【dsh】/, '文字版要标明这是本 agent 的数字')
+  assert.match(txt, /全机：/, '全机那行必须单独标注，不能混进自己那行')
+  assert.match(petStatusText(dir, { client: 'zcode' }), /本 agent【zcode】/)
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -183,6 +186,54 @@ test('attributeScan 带 pid 解析器时，node 形态的告警能归到正确 a
   assert.equal(a.perAgent.zcode.alerts, 1, 'node 子进程的告警应归到 zcode')
   assert.equal(a.perAgent.zcode.targets, 1)
   assert.equal(a.perAgent.unknown, undefined, '不该落到 unknown')
+})
+
+test('按 agent 计数：进程/外连/打包产物各自算，拆不掉进 unknown', () => {
+  const details = [
+    { pid: 100, ppid: 1, name: 'ZCode.exe', cmd: 'D:/ZCode/ZCode.exe' },
+    { pid: 200, ppid: 100, name: 'node.exe', cmd: 'node mcp.js' },
+    { pid: 300, ppid: 1, name: 'node.exe', cmd: 'node pnpm dlx @deepseek-ai/dsh web' },
+    { pid: 400, ppid: 1, name: 'Weixin.exe', cmd: 'C:/Weixin/Weixin.exe' },
+  ]
+  const a = attributeScan(
+    { findings: [], killTargets: [] },
+    {
+      resolvePid: buildPidResolver(details),
+      procDetails: details,
+      connections: [
+        { pid: 200, remoteAddress: '1.2.3.4' },
+        { pid: 300, remoteAddress: '1.2.3.5' },
+        { pid: 400, remoteAddress: '1.2.3.6' },
+      ],
+      bundles: [
+        { path: 'C:/Users/x/.zcode/ws/a.tar.gz.enc' },
+        { path: 'C:/Users/x/Desktop/b.tar.gz.enc' },
+      ],
+    },
+  )
+  assert.equal(a.perAgent.zcode.procs, 2, 'zcode 本体 + 它的 node 子进程')
+  assert.equal(a.perAgent.zcode.egress, 1, 'node 子进程的外连算 zcode 的')
+  assert.equal(a.perAgent.zcode.bundles, 1, '只有 .zcode 路径下的产物算 zcode')
+  assert.equal(a.perAgent.dsh.procs, 1)
+  assert.equal(a.perAgent.dsh.egress, 1)
+  assert.equal(a.perAgent.unknown.egress, 1, '微信不是 agent → 外连进 unknown')
+  assert.equal(a.perAgent.unknown.bundles, 1, '桌面上的产物归属不明 → unknown')
+})
+
+test('两只桌宠的数字不再相同（安静时也能区分）', () => {
+  const details = [
+    { pid: 100, ppid: 1, name: 'ZCode.exe', cmd: 'D:/ZCode/ZCode.exe' },
+    { pid: 300, ppid: 1, name: 'node.exe', cmd: 'node pnpm dlx @deepseek-ai/dsh web' },
+  ]
+  const a = attributeScan(
+    { findings: [], killTargets: [] },
+    { resolvePid: buildPidResolver(details), procDetails: details, connections: [{ pid: 300 }], bundles: [] },
+  )
+  assert.notDeepEqual(
+    [a.perAgent.zcode.procs, a.perAgent.zcode.egress],
+    [a.perAgent.dsh.procs, a.perAgent.dsh.egress],
+    '两只桌宠的计数必须不同，否则就是显示同一份东西（用户实测反馈过）',
+  )
 })
 
 for (const [n, f] of cases) {

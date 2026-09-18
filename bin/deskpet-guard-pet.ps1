@@ -30,6 +30,8 @@ function Get-GuardState {
     mood = 'unknown'; headline = ''; cycles = 0; atMs = 0
     agents = 0; egress = 0; bundles = 0; alerts = 0; targets = 0
     probeErrors = @(); lastEvent = ''
+    mineProcs = 0; mineEgress = 0; mineBundles = 0; mineAlerts = 0; mineTargets = 0; unAlerts = 0
+    machProcs = 0; machEgress = 0; machBundles = 0; scoped = $false
   }
   $statusPath = Join-Path $Dir 'guard-status.json'
   if (Test-Path $statusPath) {
@@ -45,6 +47,29 @@ function Get-GuardState {
       $state.alerts = [int]$j.activeFindings
       if ($j.killTargets) { $state.targets = @($j.killTargets).Count }
       if ($j.probeErrors) { $state.probeErrors = @($j.probeErrors) }
+      if ($j.machine) {
+        $state.machProcs = [int]$j.machine.processes
+        $state.machEgress = [int]$j.machine.egress
+        $state.machBundles = [int]$j.machine.bundles
+      } else {
+        $state.machProcs = [int]$j.agentProcessCount
+        $state.machEgress = [int]$j.egressConnections
+        $state.machBundles = [int]$j.bundleArtifacts
+      }
+      if ($j.perAgent) {
+        $state.scoped = $true
+        $mine = $j.perAgent.PSObject.Properties[$Client]
+        if ($mine) {
+          $v = $mine.Value
+          $state.mineProcs = [int]$v.procs
+          $state.mineEgress = [int]$v.egress
+          $state.mineBundles = [int]$v.bundles
+          $state.mineAlerts = [int]$v.alerts
+          $state.mineTargets = [int]$v.targets
+        }
+        $un = $j.perAgent.PSObject.Properties['unknown']
+        if ($un) { $state.unAlerts = [int]$un.Value.alerts }
+      }
     } catch { }
   }
   $eventsPath = Join-Path $Dir 'guard-events.jsonl'
@@ -104,7 +129,7 @@ $form.FormBorderStyle = 'None'
 $form.TopMost = $true
 $form.ShowInTaskbar = $false
 $form.StartPosition = 'Manual'
-$form.Size = New-Object System.Drawing.Size(336, 106)
+$form.Size = New-Object System.Drawing.Size(336, 124)
 $form.BackColor = [System.Drawing.Color]::FromArgb(22, 24, 28)
 $form.Opacity = 0.93
 
@@ -138,7 +163,7 @@ $sub.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 7.5)
 $sub.ForeColor = [System.Drawing.Color]::FromArgb(150, 155, 165)
 $sub.AutoSize = $false
 $sub.TextAlign = 'TopLeft'
-$sub.SetBounds(120, 40, 212, 62)
+$sub.SetBounds(120, 38, 214, 84)
 $form.Controls.Add($sub)
 
 # 拖动窗口
@@ -186,22 +211,31 @@ function Update-Pet {
     $ageSec = [math]::Round(([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $s.atMs) / 1000)
   } else { $ageSec = -1 }
   $title.Text = if ($s.headline) { $s.headline } else { '尚无采样（守护没在跑）' }
-  $sub.Text = ("{0} · agent {1} · 外发 {2} · 打包 {3} · 告警 {4}`r`n第 {5} 轮 · {6} 秒前采样" -f $Client.ToUpper(), $s.agents, $s.egress, $s.bundles, $s.alerts, $s.cycles, $ageSec)
+  if ($s.scoped) {
+    $line1 = ("{0} 本 agent：进程 {1} 外发 {2} 打包 {3} 告警 {4}" -f $Client.ToUpper(), $s.mineProcs, $s.mineEgress, $s.mineBundles, $s.mineAlerts)
+    $line2 = ("全机：进程 {0} 外发 {1} 打包 {2} 未归属 {3}" -f $s.machProcs, $s.machEgress, $s.machBundles, $s.unAlerts)
+  } else {
+    $line1 = ("{0} · 全机视图（宿主未写归属数据）" -f $Client.ToUpper())
+    $line2 = ("全机：进程 {0} 外发 {1} 打包 {2} 告警 {3}" -f $s.machProcs, $s.machEgress, $s.machBundles, $s.mineAlerts)
+  }
+  $sub.Text = ($line1 + "`r`n" + $line2 + ("`r`n第 {0} 轮 · {1} 秒前采样" -f $s.cycles, $ageSec))
   if ($ageSec -gt 60) { $title.Text = $title.Text + '（快照已过期）' }
   if ($s.probeErrors.Count -gt 0) { $sub.Text = $sub.Text + " · ⚠ 探针降级" }
 }
 
 # ── 生命周期：看护客户端主进程，客户端没了就自己退（用户要求"退出即关"）──
+# 多锚点是 OR 关系：任一还活着就算客户端还在（pid 与进程名常指向同一个客户端，
+# 用 AND 会因为其中一个先退而误判）。
 function Test-Watched {
+  $any = $false
   if ($WatchPid -gt 0) {
-    $p = Get-Process -Id $WatchPid -ErrorAction SilentlyContinue
-    if (-not $p) { return $false }
+    if (Get-Process -Id $WatchPid -ErrorAction SilentlyContinue) { $any = $true }
   }
   if ($WatchProcess -and $WatchProcess.Trim().Length -gt 0) {
-    $named = @(Get-Process -Name $WatchProcess -ErrorAction SilentlyContinue)
-    if ($named.Count -eq 0) { return $false }
+    if (@(Get-Process -Name $WatchProcess -ErrorAction SilentlyContinue).Count -gt 0) { $any = $true }
   }
-  return $true
+  if ($WatchPid -le 0 -and (-not $WatchProcess -or $WatchProcess.Trim().Length -eq 0)) { return $true }
+  return $any
 }
 
 function Remove-OwnLock {
@@ -211,8 +245,12 @@ function Remove-OwnLock {
 
 $lifeTimer = New-Object System.Windows.Forms.Timer
 $lifeTimer.Interval = 2000
+$script:misses = 0
 $lifeTimer.Add_Tick({
-  if (-not (Test-Watched)) {
+  if (Test-Watched) { $script:misses = 0; return }
+  # 连续 3 次（约 6 秒）都缺席才关：避免把"壳进程刚退"误判成"客户端退出"
+  $script:misses++
+  if ($script:misses -ge 3) {
     $lifeTimer.Stop()
     Remove-OwnLock
     $form.Close()

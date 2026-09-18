@@ -1,6 +1,6 @@
 {
   "name": "deskpet-guard",
-  "version": "0.2.4",
+  "version": "0.2.7",
   "description": "Monitor AI agents for suspicious exfiltration (encrypted workspace bundles, object-storage egress, secret-file touches) on Windows. Append-only event log; termination requires two-step human confirmation, one target per confirmation.",
   "description_i18n": {
     "en": "Monitor AI agents for suspicious exfiltration (encrypted workspace bundles, object-storage egress, secret-file touches) on Windows. Append-only event log; termination requires two-step human confirmation, one target per confirmation.",
