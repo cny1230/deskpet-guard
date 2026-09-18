@@ -12,7 +12,7 @@
 | GitHub topics（9 个，含 `dsh-plugin`） | ✅ 已打 | `GET /repos/cny1230/deskpet-guard` 回读可见 |
 | GitHub 搜索索引 | ✅ 已索引 | `search/repositories?q=repo:cny1230/deskpet-guard` 命中 1 条，带全部 topics |
 | dsh.so 收录 | ✅ **已提交**（2026-09-18） | 用 dsh.so 自己的提交页跑完 checker 后点 `Submit to dsh.so`，`POST /api/submit` → **HTTP 200**、页面 `✓ Submitted`；该站明说"files the registry entry and scan report as an issue in the dsh.so backend via the site API — no GitHub account required"。`/artifact/deskpet-guard/` 仍 404 = 站点静态重建尚未跑 |
-| npm 包 | ⏳ **代码已就绪，只差登录** | 包名已改为不带 scope 的 `deskpet-guard`（registry 上该名空着）、已删 `private`、已加 `publishConfig` + `prepublishOnly`；`npm publish --dry-run` 通过（21 文件 / 202 kB / public）。本机 npm 未登录，发布需作者账号（npmjs.com 注册 + `npm login`） |
+| npm 包 | ✅ **已发布** | [`deskpet-guard@0.1.0`](https://www.npmjs.com/package/deskpet-guard)（BSD-3-Clause / maintainer `cny1230`）；实测 `npx -y deskpet-guard` 从 npm 拉下来跑通 MCP（initialize + 5 工具）。发布过程与踩到的 2FA 坑见下 |
 | MCP 官方 registry | ⏳ 未发布 | 需要已发布的包 + 按其 schema 生成 `server.json` |
 
 ### dsh.so checker 对我们的实测结论（2026-09-18，提交时同批上报）
@@ -51,39 +51,66 @@ https://github.com/cny1230/deskpet-guard
 
 awesome-dsh-plugin / dsh-plugin-hub 一类清单站：按其 README 的 PR 格式加一行（通常 = 名称 + 一句话 + 仓库链接 + 安装命令）。
 
-### 步骤 2：发布到 npm
+### 步骤 2：发布到 npm —— ✅ 已完成（2026-09-18）
 
-**已就绪的状态（2026-09-18 完成）**：
+**已发布**：[`deskpet-guard@0.1.0`](https://www.npmjs.com/package/deskpet-guard)（BSD-3-Clause，maintainer `cny1230`）。
 
-- 包名已从 `@dsh-external/deskpet-guard`（该 scope 不归作者，发不了）改为**不带 scope 的 `deskpet-guard`**；
-- 已删 `"private": true`；已加 `publishConfig`（`registry: https://registry.npmjs.org/` + `access: public`）
-  —— 这一条很关键：本机 `~/.npmrc` 指向 npmmirror 镜像，靠 `publishConfig.registry` 才能确保推到官方源；
-- 已加 `prepublishOnly`（发布前自动跑全套测试 + 语法自检）；
-- 改名连带改过的 4 处引用：`package.json`、`cordis.patch.yml`、`lib/client.js` 的 ModuleLoader `id`、
-  `lib/index.js` 与 `lib/types` 的 `name` 导出（`test/client-bundle.test.mjs` 现在按 `pkg.name` 断言，防漂移）；
-- `npm publish --dry-run` 通过：`deskpet-guard@0.1.0`、21 个文件、202 kB、public。
+发布前做的准备（改包名时一并完成）：
 
-**只差登录这一步**（必须有 npm 账号；作者当时还没有）：
+- 包名从 `@dsh-external/deskpet-guard`（该 scope 不归作者，发不了）改为**不带 scope 的 `deskpet-guard`**；
+- 删 `"private": true`；加 `publishConfig`（`registry: https://registry.npmjs.org/` + `access: public`）
+  —— 关键：本机 `~/.npmrc` 指向 npmmirror 镜像，靠 `publishConfig.registry` 才能确保推到官方源；
+- 加 `prepublishOnly`（发布前自动跑全套测试 + 语法自检）；
+- 改名连带改过 4 处引用：`package.json`、`cordis.patch.yml`、`lib/client.js` 的 ModuleLoader `id`、
+  `lib/index.js` 与 `lib/types` 的 `name` 导出（`test/client-bundle.test.mjs` 按 `pkg.name` 断言，防漂移）。
+
+**实际发布时踩到的坑（值得记住）**：
+
+1. 作者账号开了 2FA 写保护。npm 11 的 `npm login` 走 web 流程，落地的是
+   **granular access token**，它**不带 bypass 2FA**，所以 `npm publish --otp=<码>` 依然 403：
+   `Two-factor authentication or granular access token with bypass 2fa enabled is required to publish packages`。
+2. 正解：到 <https://www.npmjs.com/settings/<user>/tokens> → Generate New Token →
+   **Granular token 里勾上 `Bypass two-factor authentication (2FA)`**（或 Classic → Automation），
+   权限给 **Read and write (publish and stage)**，包范围 **All packages**（包还不存在时没法按包名指定），
+   过期时间设短；
+   ```bash
+   npm config set //registry.npmjs.org/:_authToken=npm_xxxx
+   npm config delete _auth          # 清掉 npm login 留下的旧凭据键
+   npm publish                      # publishConfig 已指定源与 public access
+   ```
+3. 官方文档口径：*"All packages now require two-factor authentication (2FA) or a granular access token
+   with bypass 2FA enabled for creating and publishing packages."*
+   （[npm Docs](https://docs.npmjs.com/requiring-2fa-for-package-publishing-and-settings-modification/)）
+   注意 **2026-08 起 bypass-2FA token 不能用于账号身份/治理类操作**（发布不受影响），
+   而 **2027-01 起 bypass token 直连发布会被禁** —— 所以后续版本建议改用
+   [Trusted publishing (OIDC)](https://docs.npmjs.com/trusted-publishers)（GitHub Actions 无凭据发布）。
+
+**发布后验证（实测）**：
 
 ```bash
-# ① 注册（只需一次）：https://www.npmjs.com/signup
-# ② 登录（在本机终端里输密码 / OTP）
-npm login --registry=https://registry.npmjs.org/
-# ③ 发布（仓库根目录）
-npm publish        # publishConfig 已指定 registry 与 public access，无需再加参数
-```
-
-不想在本机登录取密码的话，也可以在 npmjs.com 生成 **Automation token** 后：
-
-```bash
-npm config set //registry.npmjs.org/:_authToken=<token>   # 发布完可立刻 revoke
-npm publish
+npm view deskpet-guard            # 0.1.0 / BSD-3-Clause / bin: deskpet-guard + deskpet-guard-mcp
+printf '<initialize + tools/list>\n' | npx -y deskpet-guard
+# → 2 条响应：initialize（deskpet-guard v0.1.0 / protocol 2025-06-18）+ tools/list（5 个工具）
 ```
 
 发布后即可：`npx deskpet-guard`（MCP 客户端）与 `dsh plugin --profile web add deskpet-guard`。
 
-> 注：名字是**先到先得**。`deskpet-guard` 在本机核对时是空的；若被人抢注，退回
-> `@<你的 npm 用户名>/deskpet-guard`（此时要同步改上面那 4 处引用，并重跑 `npm test`）。
+### 下一个版本怎么发（当前采用：手动 + bypass token）
+
+作者 2026-09 的决定是**先用 token 手动发**，暂不接 OIDC。流程：
+
+1. **改版本号（两处必须一致，有测试拦）**：`package.json` 的 `version`
+   与 `lib/index.js` 的 `export const VERSION`（`test/plugin.test.mjs` 里那条 `VERSION 与 package.json 一致`）；
+2. 跑自检：`npm test`（9 套件 / 127 例）+ `npm run check`（`prepublishOnly` 发布前还会再跑一遍）；
+3. 提交推送并等 CI 绿：`git push` → GitHub Actions；
+4. 发布：`npm publish`（`~/.npmrc` 里已有 bypass token；若已 revoke，按上面"步骤 2"重新配一个）；
+5. 发布后验证：`npm view deskpet-guard version`、`npx -y deskpet-guard@<新版本>`；
+6. 顺手打 tag：`git tag v<版本> && git push --tags`（本次首发没打，可从 `v0.1.0` 补起）。
+
+> 什么时候该换成 OIDC：npm 已宣布 **2027-01 起 bypass-2FA token 不能直连发布**。
+> 到那时（或你不想再留这种强权限 token 时）再加 `.github/workflows/release.yml`：
+> `permissions: id-token: write` + `npm publish`，并在 npm 包设置里把 trusted publisher
+> 指到 `cny1230/deskpet-guard`。包已存在，所以现在就能配置。
 
 ### 步骤 3：MCP 官方注册中心（可选）
 

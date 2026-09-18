@@ -313,21 +313,19 @@ node test/mcp-stdio.test.mjs  # 只跑 MCP 传输层（单请求单响应 / clos
 | GitHub 仓库 | ✅ 已发布 | <https://github.com/cny1230/deskpet-guard>（public，CI 绿） |
 | `dsh plugin add github:…` | ✅ 可用 | 本包带 `cordis.patch.yml` + `dsh.bundle.patch`，标准安装路径能装 |
 | GitHub topic `dsh-plugin` 等 9 个 | ✅ 已打 | 已被 GitHub 搜索索引；`topic:dsh-plugin` 下有 1.5 万仓库且按 star 排序，0★ 新仓库不会出现在列表首页，但按名字搜得到 |
-| npm 包 | ⏳ 代码已就绪，只差作者登录 | 包名已改为不带 scope 的 `deskpet-guard`（registry 上该名是空的）、已删 `private`、已加 `publishConfig`（推到官方源而不是本机 .npmrc 的镜像）+ `prepublishOnly`（发布前自动跑全套测试）；`npm publish --dry-run` 通过：21 文件 / 202 kB / public |
-| dsh.so 收录 | ✅ **已提交** | 用它自己的提交页跑完 checker 后点了 `Submit to dsh.so` → `POST /api/submit` HTTP 200、页面 `✓ Submitted`；artifact 页等它静态重建 |
+| npm 包 | ✅ **已发布** | [`deskpet-guard@0.1.0`](https://www.npmjs.com/package/deskpet-guard)（BSD-3-Clause，maintainer `cny1230`）。实测：`npx -y deskpet-guard` 从 npm 拉下来跑通 MCP（initialize + 5 个工具）；也可 `dsh plugin --profile web add deskpet-guard` |
+| dsh.so 收录 | ✅ **已提交两次** | 用它自己的提交页跑完 checker 后点 `Submit to dsh.so` → `POST /api/submit` HTTP 200、页面 `✓ Submitted`（第二次起条目里已带上 `npm.packageName`）。它的公开 artifact 页 `/artifact/deskpet-guard/` 仍在等它静态重建（15,459 → 尚未 +1） |
 
-**还差的最后一步**（账号态操作，本机没有 npm 凭据）：
+**下一步（可选，非阻塞）**：
 
-1. 注册/登录 npm：<https://www.npmjs.com/signup> → `npm login`（或生成 Automation token 后
-   `npm config set //registry.npmjs.org/:_authToken=<token>`）；
-2. `npm publish`（`publishConfig` 已指定官方源与 public access，无需额外参数）。
+1. 未来版本发布建议改用 [Trusted publishing (OIDC)](https://docs.npmjs.com/trusted-publishers)：
+   由 GitHub Actions 用 OIDC 发布、不存凭据 —— 因为 npm 已宣布 **2027-01 起 bypass-2FA token 不能再直连发布**；
+   本仓库已有 CI，加一个 `release.yml` + 在 npm 上把 trusted publisher 指到 `cny1230/deskpet-guard` 即可；
+2. dsh.so 的 artifact 页要等它自己的重建周期（条目已在其后台）。
 
-步骤与自检清单见 **[docs/PUBLISHING.md](docs/PUBLISHING.md)**。
-在此之前，"能用"的路径是：**GitHub 直装**（`dsh plugin --profile web add github:cny1230/deskpet-guard`）
-或 **MCP 直连**（`node <repo>/bin/deskpet-guard-mcp.js`）。
-
-> 剩余步骤的逐步操作、发布前自检清单、以及"两条安装路径别同时用"的说明，见
-> **[docs/PUBLISHING.md](docs/PUBLISHING.md)**。
+用法汇总：**GitHub 直装**（`dsh plugin --profile web add github:cny1230/deskpet-guard`）、
+**npm 装**（`dsh plugin --profile web add deskpet-guard`）、**MCP**（`npx deskpet-guard`）。
+逐步操作与自检清单见 **[docs/PUBLISHING.md](docs/PUBLISHING.md)**。
 
 ## 许可
 
