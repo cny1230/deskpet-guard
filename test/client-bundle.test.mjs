@@ -53,7 +53,8 @@ test('lib/client.js 存在且非空（第一个版本就是缺这个文件）', 
 
 test('产物是 DSH ModuleLoader 约定，且 id 与包名一致', () => {
   assert.match(clientSrc, /window\.__ModuleLoader__\.load\(/)
-  assert.ok(clientSrc.includes('id: "@dsh-external/deskpet-guard"'), 'ModuleLoader id 不是包名')
+  // 断言与 package.json 的 name 相等（改名时不必再手改测试，但产物写错 id 会被抓）
+  assert.ok(clientSrc.includes('id: "' + pkg.name + '"'), 'ModuleLoader id 与包名不一致（应为 ' + pkg.name + '）')
   assert.match(clientSrc, /factory: \(require\) =>/)
 })
 

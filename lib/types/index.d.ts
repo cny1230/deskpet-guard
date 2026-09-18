@@ -123,7 +123,7 @@ export interface GuardConfig {
 }
 
 export declare const VERSION: string
-export declare const name: '@dsh-external/deskpet-guard'
+export declare const name: 'deskpet-guard'
 export declare const inject: string[]
 
 /** 采样一次（纯读：不写事件流、不动任何进程）。 */

@@ -25,7 +25,7 @@ type AppContext = Context & {
   setInterval(fn: () => void, ms: number): any
 }
 
-export const name = "@dsh-external/deskpet-guard-daemon"
+export const name = "deskpet-guard-daemon"
 export const inject = ['timer', 'llm']
 
 export interface Config {

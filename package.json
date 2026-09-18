@@ -1,12 +1,12 @@
 {
-  "name": "@dsh-external/deskpet-guard",
+  "name": "deskpet-guard",
   "version": "0.1.0",
   "description": "Agent 行为守护桌宠：跨 agent 监控可疑外传（加密打包直传对象存储 / DNS 外泄线索 / 敏感密钥被读），发现即告警，明确确认后按「一次一个」终止目标 agent；事件写入只追加 guard-events.jsonl，并通过 DSH host 工具 + MCP(stdio) 供其它 agent 查询",
-  "private": true,
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/types/index.d.ts",
   "bin": {
+    "deskpet-guard": "./bin/deskpet-guard-mcp.js",
     "deskpet-guard-mcp": "./bin/deskpet-guard-mcp.js"
   },
   "files": [
@@ -19,6 +19,10 @@
     "LICENSE"
   ],
   "license": "BSD-3-Clause",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/cny1230/deskpet-guard.git"
@@ -74,6 +78,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check": "node --check lib/index.js && node --check lib/api.js && node --check lib/mcp.js && node --check lib/client.js && node --check bin/deskpet-guard-mcp.js",
     "test": "node test/all.mjs",
+    "prepublishOnly": "node test/all.mjs && npm run check",
     "test:suites": "node test/all.mjs",
     "scan": "node lib/index.js",
     "events": "node lib/index.js --events 20",

@@ -12,5 +12,5 @@
 #   要切标准装法时先 `dev_uninject_plugin {"match":"deskpet-guard"}`。
 - insert:
     - id: deskpet-guard
-      name: '@dsh-external/deskpet-guard'
+      name: 'deskpet-guard'
       config: {}

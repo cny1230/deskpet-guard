@@ -81,8 +81,10 @@
 # 仓库直装（pnpm 会把本包装进 web profile，并按 cordis.patch.yml 插入 loader entry）
 dsh plugin --profile web add github:cny1230/deskpet-guard
 
-# 若已发布到 npm（见下"发布状态"），也可以按包名装：
-# dsh plugin --profile web add @dsh-external/deskpet-guard
+# 按包名装（npm 发布后；包名就是 deskpet-guard，不带 scope）
+dsh plugin --profile web add deskpet-guard
+
+# MCP 客户端：npx deskpet-guard
 ```
 
 **注入器安装（开发/热重载用，免重启）**：
@@ -102,7 +104,7 @@ git clone https://github.com/cny1230/deskpet-guard.git D:/deskpet-guard
 - 5 个 host 工具：`guard_status` / `guard_events` / `guard_scan` / `guard_prepare_kill` / `guard_confirm_kill`
 - 右下角常驻**桌宠**（`shell.overlay`）+ 会话侧栏**详情面板**（`conversation.view`）
 - 本地 HTTP API：`GET /deskpet-guard/api/status|events`、`POST /deskpet-guard/api/scan|prepare-kill|confirm-kill`
-- MCP server：`npx deskpet-guard-mcp`（npm 发布后）或 `node <repo>/bin/deskpet-guard-mcp.js`
+- MCP server：`npx deskpet-guard`（npm 发布后）或 `node <repo>/bin/deskpet-guard-mcp.js`
 
 配置（`apply(ctx, config)` 的 config）：
 
@@ -311,17 +313,16 @@ node test/mcp-stdio.test.mjs  # 只跑 MCP 传输层（单请求单响应 / clos
 | GitHub 仓库 | ✅ 已发布 | <https://github.com/cny1230/deskpet-guard>（public，CI 绿） |
 | `dsh plugin add github:…` | ✅ 可用 | 本包带 `cordis.patch.yml` + `dsh.bundle.patch`，标准安装路径能装 |
 | GitHub topic `dsh-plugin` 等 9 个 | ✅ 已打 | 已被 GitHub 搜索索引；`topic:dsh-plugin` 下有 1.5 万仓库且按 star 排序，0★ 新仓库不会出现在列表首页，但按名字搜得到 |
-| npm 包 | ⏳ 未发布 | `deskpet-guard` / `@cny1230/deskpet-guard` 名字都还空着；当前 `"private": true` 会挡住发布 |
-| dsh.so / awesome-dsh-plugin 收录 | ⏳ 待提交 | 要求 = topic ✔ + 合法 cordis manifest ✔ + SPDX 许可 ✔ + 可验证的 install 命令 ✔；剩下的只是到它们站点走 Submit |
+| npm 包 | ⏳ 代码已就绪，只差作者登录 | 包名已改为不带 scope 的 `deskpet-guard`（registry 上该名是空的）、已删 `private`、已加 `publishConfig`（推到官方源而不是本机 .npmrc 的镜像）+ `prepublishOnly`（发布前自动跑全套测试）；`npm publish --dry-run` 通过：21 文件 / 202 kB / public |
+| dsh.so 收录 | ✅ **已提交** | 用它自己的提交页跑完 checker 后点了 `Submit to dsh.so` → `POST /api/submit` HTTP 200、页面 `✓ Submitted`；artifact 页等它静态重建 |
 
-**还差的两步**（都需要账号态操作）：
+**还差的最后一步**（账号态操作，本机没有 npm 凭据）：
 
-1. **提交收录**：到 <https://www.dsh.so/submit/> 与 awesome-dsh-plugin 提交仓库链接
-   （它的收录是 topic 自动索引 + 人工 Submit 双轨；自动索引有周期，刚打上 topic 时
-   `https://www.dsh.so/artifact/deskpet-guard/` 还是 404）；
-2. **想上 npm**（可选，但很多 MCP 目录要求 npm 包）：删掉 `package.json` 里的 `"private": true`
-   → `npm publish`（若要按包名装，建议把 `@dsh-external/…` 换成你自己可发布的 scope，如 `@cny1230/…`）。
+1. 注册/登录 npm：<https://www.npmjs.com/signup> → `npm login`（或生成 Automation token 后
+   `npm config set //registry.npmjs.org/:_authToken=<token>`）；
+2. `npm publish`（`publishConfig` 已指定官方源与 public access，无需额外参数）。
 
+步骤与自检清单见 **[docs/PUBLISHING.md](docs/PUBLISHING.md)**。
 在此之前，"能用"的路径是：**GitHub 直装**（`dsh plugin --profile web add github:cny1230/deskpet-guard`）
 或 **MCP 直连**（`node <repo>/bin/deskpet-guard-mcp.js`）。
 

@@ -11,9 +11,18 @@
 | `dsh plugin --profile web add github:cny1230/deskpet-guard` | ✅ 可用 | 本包带 `cordis.patch.yml` + `dsh.bundle.patch`（`test/client-bundle.test.mjs` 有守卫） |
 | GitHub topics（9 个，含 `dsh-plugin`） | ✅ 已打 | `GET /repos/cny1230/deskpet-guard` 回读可见 |
 | GitHub 搜索索引 | ✅ 已索引 | `search/repositories?q=repo:cny1230/deskpet-guard` 命中 1 条，带全部 topics |
-| dsh.so artifact 页 | ⏳ 未收录 | `GET https://www.dsh.so/artifact/deskpet-guard/` → 404（索引有周期；也可直接 Submit） |
-| npm 包 | ⏳ 未发布 | `package.json` 仍 `"private": true`；registry 上 `deskpet-guard`、`@cny1230/deskpet-guard` 均 404 = 名字空着 |
+| dsh.so 收录 | ✅ **已提交**（2026-09-18） | 用 dsh.so 自己的提交页跑完 checker 后点 `Submit to dsh.so`，`POST /api/submit` → **HTTP 200**、页面 `✓ Submitted`；该站明说"files the registry entry and scan report as an issue in the dsh.so backend via the site API — no GitHub account required"。`/artifact/deskpet-guard/` 仍 404 = 站点静态重建尚未跑 |
+| npm 包 | ⏳ **代码已就绪，只差登录** | 包名已改为不带 scope 的 `deskpet-guard`（registry 上该名空着）、已删 `private`、已加 `publishConfig` + `prepublishOnly`；`npm publish --dry-run` 通过（21 文件 / 202 kB / public）。本机 npm 未登录，发布需作者账号（npmjs.com 注册 + `npm login`） |
 | MCP 官方 registry | ⏳ 未发布 | 需要已发布的包 + 按其 schema 生成 `server.json` |
+
+### dsh.so checker 对我们的实测结论（2026-09-18，提交时同批上报）
+
+- **FORMAT VALIDATION：Pass**（5/5）—— 公共活跃仓库 / 有 README / SPDX 许可 BSD-3-Clause /
+  `package.json` 声明了 dsh manifest（识别为 `dshManifest: "bundle"`）/ 名字能 slug 成合法 id
+- **SECURITY SCAN：Warn** —— 0 Critical、15 Warnings、35 Info，扫描 33 个文件
+  - 主要是启发式告警：7 处"HTTP request to a raw IP"（其实是我们自己的 `127.0.0.1:<port>` 本机端点）、
+    3 处 `execFileSync`（只读 PowerShell 探针 + 两步确认后的终止动作）、若干 `process.env` 读取与测试文件里的 child_process（dev-only 已降级）
+  - 该站规则：只有 critical 阻塞提交；warning 需人工复核 —— 不阻塞，但会显示在条目上
 
 ## 2. 收录规则（dsh.so 一类 DSH 注册中心）
 
@@ -42,22 +51,39 @@ https://github.com/cny1230/deskpet-guard
 
 awesome-dsh-plugin / dsh-plugin-hub 一类清单站：按其 README 的 PR 格式加一行（通常 = 名称 + 一句话 + 仓库链接 + 安装命令）。
 
-### 步骤 2：发布到 npm（可选，但很多 MCP 目录要求）
+### 步骤 2：发布到 npm
+
+**已就绪的状态（2026-09-18 完成）**：
+
+- 包名已从 `@dsh-external/deskpet-guard`（该 scope 不归作者，发不了）改为**不带 scope 的 `deskpet-guard`**；
+- 已删 `"private": true`；已加 `publishConfig`（`registry: https://registry.npmjs.org/` + `access: public`）
+  —— 这一条很关键：本机 `~/.npmrc` 指向 npmmirror 镜像，靠 `publishConfig.registry` 才能确保推到官方源；
+- 已加 `prepublishOnly`（发布前自动跑全套测试 + 语法自检）；
+- 改名连带改过的 4 处引用：`package.json`、`cordis.patch.yml`、`lib/client.js` 的 ModuleLoader `id`、
+  `lib/index.js` 与 `lib/types` 的 `name` 导出（`test/client-bundle.test.mjs` 现在按 `pkg.name` 断言，防漂移）；
+- `npm publish --dry-run` 通过：`deskpet-guard@0.1.0`、21 个文件、202 kB、public。
+
+**只差登录这一步**（必须有 npm 账号；作者当时还没有）：
 
 ```bash
-# ① 先决定名字：@dsh-external 这个 scope 不归你所有，按包名装/发布前建议改成自己的
-#    （例：@cny1230/deskpet-guard）—— 这会同时改 package.json、cordis.patch.yml 里的 name、
-#     以及 README 里的安装命令，改完必须重跑 npm test（有跨文件一致性守卫）
-# ② 去掉 package.json 的 "private": true
-# ③ 发布前自检
-npm test && npm run check
-npm pack --dry-run     # 确认 files 列表带上了 lib/ bin/ docs/ cordis.patch.yml
-# ④ 发布
-npm login
-npm publish --access public
+# ① 注册（只需一次）：https://www.npmjs.com/signup
+# ② 登录（在本机终端里输密码 / OTP）
+npm login --registry=https://registry.npmjs.org/
+# ③ 发布（仓库根目录）
+npm publish        # publishConfig 已指定 registry 与 public access，无需再加参数
 ```
 
-发布后即可：`npx deskpet-guard-mcp`（MCP 客户端）与 `dsh plugin --profile web add @<scope>/deskpet-guard`。
+不想在本机登录取密码的话，也可以在 npmjs.com 生成 **Automation token** 后：
+
+```bash
+npm config set //registry.npmjs.org/:_authToken=<token>   # 发布完可立刻 revoke
+npm publish
+```
+
+发布后即可：`npx deskpet-guard`（MCP 客户端）与 `dsh plugin --profile web add deskpet-guard`。
+
+> 注：名字是**先到先得**。`deskpet-guard` 在本机核对时是空的；若被人抢注，退回
+> `@<你的 npm 用户名>/deskpet-guard`（此时要同步改上面那 4 处引用，并重跑 `npm test`）。
 
 ### 步骤 3：MCP 官方注册中心（可选）
 
