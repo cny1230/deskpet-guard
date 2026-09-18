@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>deskpet-guard 面板离线预览</title>
+<style>
+  html,body{margin:0;background:#14161a;color:#ddd;font-family:ui-monospace,Menlo,monospace}
+  .harness-note{position:fixed;left:0;top:0;right:0;z-index:10;background:#3a2a05;color:#f1c40f;
+    padding:4px 10px;font-size:11px;border-bottom:1px solid #6b4e0a}
+  .harness-stage{padding:44px 24px 24px}
+  .harness-title{font-size:11px;color:#8899aa;margin:0 0 10px}
+  .harness-mount{max-width:820px}
+</style>
+</head>
+<body>
+<div class="harness-note">
+  离线预览 harness —— 加载的是真实交付物 <code>lib/client.js</code>（DSH ModuleLoader 约定），
+  但宿主 slots 服务与 fetch 是 <b>stub</b>；数据为预览样例，非本机实时采样。这不是 DSH GUI 截图。
+</div>
+<div class="harness-stage">
+  <p class="harness-title">conversation.view → 详情面板</p>
+  <div class="harness-mount" id="panel"></div>
+</div>
+
+<script>
+// ── 预览数据（离线自包含；结构就是 lib/api.js 的响应结构）──
+const ALERT = {
+  status: {
+    ok: true, version: '0.1.0', mode: 'execute', apiBase: '/deskpet-guard/api',
+    dataDir: 'C:\\Users\\<you>\\.dsh\\super-injector\\deskpet-guard',
+    status: {
+      atMs: Date.now() - 4200, cycles: 37, mood: 'alert',
+      headline: '有中等级别异常需要留意', worstSeverity: 'medium',
+      activeFindings: 1, newEvents: 1,
+      probeErrors: ['Get-NetTCPConnection 探针失败', 'Get-DnsClientCache 探针失败', 'Get-Process 探针失败'],
+      agentProcessCount: 0, egressConnections: 0, bundleArtifacts: 3, killTargets: [],
+    },
+    mood: 'alert', headline: '有中等级别异常需要留意',
+    targets: [],
+  },
+  // 事件流顺序与真实 API 一致：**旧 → 新**（面板自己 slice+reverse 显示最新在前）
+  events: { ok: true, limit: 30, events: [
+    { seq: 1, atMs: Date.now() - 3600000, ruleId: 'R4-secret-file-touched', severity: 'medium', title: '密钥/凭据目录最近被写入',
+      evidence: { path: 'C:\\Users\\<you>\\.zcode\\certs' } },
+    { seq: 2, atMs: Date.now() - 90000, ruleId: 'R2-fresh-bundle-artifact', severity: 'high', title: '10 分钟内有新的打包产物出现',
+      evidence: { path: 'C:\\Users\\<you>\\.zcode\\v2\\checkpoints\\a1b2\\pending\\ws.tar.gz.enc', bytes: 25700000 } },
+    { seq: 3, atMs: Date.now() - 4200, ruleId: 'R0-probe-degraded', severity: 'medium', title: '部分探针执行失败，判定能力降级',
+      evidence: { platform: 'win32', errors: 'Get-NetTCPConnection 探针失败 | Get-DnsClientCache 探针失败 | Get-Process 探针失败' } },
+  ]},
+};
+
+const PANIC = {
+  status: {
+    ok: true, version: '0.1.0', mode: 'execute', apiBase: '/deskpet-guard/api',
+    dataDir: 'C:\\Users\\<you>\\.dsh\\super-injector\\deskpet-guard',
+    status: {
+      atMs: Date.now() - 1200, cycles: 4, mood: 'panic',
+      headline: '检测到对象存储直传', worstSeverity: 'critical',
+      activeFindings: 2, newEvents: 2, probeErrors: [],
+      agentProcessCount: 3, egressConnections: 1, bundleArtifacts: 3,
+      killTargets: [{ pid: 4242, process: 'ZCode.exe', reason: 'ZCode 正在连接对象存储服务', remote: 'oss-cn-beijing.aliyuncs.com:443' }],
+    },
+    mood: 'panic', headline: '检测到对象存储直传',
+    targets: [{ pid: 4242, process: 'ZCode.exe', reason: 'ZCode 正在连接对象存储服务', remote: 'oss-cn-beijing.aliyuncs.com:443' }],
+  },
+  // 旧 → 新（同真实 API）
+  events: { ok: true, limit: 30, events: [
+    { seq: 10, atMs: Date.now() - 120000, ruleId: 'R3-bundle-burst', severity: 'high', title: '5 分钟内成簇刷包（3 个）' },
+    { seq: 11, atMs: Date.now() - 60000, ruleId: 'R2-fresh-bundle-artifact', severity: 'high', title: '10 分钟内有新的打包产物出现',
+      evidence: { path: 'C:\\Users\\<you>\\.zcode\\v2\\checkpoints\\a1b2\\pending\\ws.tar.gz.enc', bytes: 25700000 } },
+    { seq: 12, atMs: Date.now() - 1200, ruleId: 'R1-agent-to-object-storage', severity: 'critical', title: 'ZCode 正在连接对象存储服务',
+      evidence: { pid: 4242, process: 'ZCode.exe', remote: 'oss-cn-beijing.aliyuncs.com:443' } },
+  ]},
+};
+
+const params = new URLSearchParams(location.search);
+const mode = params.get('mode') === 'panic' ? 'panic' : 'alert';
+const data = mode === 'panic' ? PANIC : ALERT;
+
+// ── stub fetch：按 lib/api.js 的真实契约回数据 ──
+window.fetch = (url, init) => {
+  const path = String(url).split('?')[0];
+  const reply = (obj) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(obj) });
+  if (path.endsWith('/status')) return reply(data.status);
+  if (path.endsWith('/events')) return reply(data.events);
+  if (path.endsWith('/scan')) return reply({ ok: true, mood: data.status.status, findings: [], targets: data.status.targets, probeErrors: data.status.status.probeErrors });
+  if (path.endsWith('/prepare-kill')) {
+    const t = data.status.targets[0] || { pid: 0, process: '?' };
+    return reply({
+      ok: true, requiresConfirmation: true, policy: 'one-target-per-confirmation', action: 'kill',
+      targets: data.status.targets, targetCount: data.status.targets.length,
+      command: 'Stop-Process -Id <选中的单个 pid> -Force',
+      warning: '终止 agent 进程可能中断你正在进行的会话或损坏未保存的编辑内容。一次确认只终止一个目标；请确认进程确实是你想停掉的那个。',
+      confirmToken: 'kill-preview-token', confirmTarget: t,
+    });
+  }
+  if (path.endsWith('/confirm-kill')) return reply({ ok: false, error: '预览 harness：不会真的执行终止' });
+  return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({ ok: false, error: 'preview: ' + path }) });
+};
+
+// ── stub ModuleLoader：把工厂产出的 exports 接过来 ──
+let plugin = null;
+window.__ModuleLoader__ = { load: (def) => { plugin = def.factory(() => { throw new Error('preview harness: require() 未实现') }) } };
+</script>
+<script src="../lib/client.js"></script>
+<script>
+// ── stub 宿主 slots 服务：mount 真组件 ──
+const mounted = [];
+const ctx = {
+  logger: console,
+  effect: (fn) => { fn(); return () => {} },
+  slots: {
+    inject: (slot, register) => { register(); },
+    register: (reg) => { mounted.push(reg); },
+  },
+};
+plugin.apply(ctx);
+for (const reg of mounted) {
+  const node = reg.component().render();
+  if (reg.name === 'conversation.view') document.getElementById('panel').appendChild(node);
+  else document.body.appendChild(node); // shell.overlay → 悬浮桌宠
+}
+
+// ── ?step=2：自动点一次"确认终止"，把两步确认 UI 展开（只点第一步，不点最终确认）──
+if (params.get('step') === '2') {
+  setTimeout(() => {
+    const btn = document.querySelector('.dpg-btn.danger');
+    if (btn) btn.click();
+  }, 400);
+}
+</script>
+</body>
+</html>

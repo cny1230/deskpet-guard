@@ -1,0 +1,100 @@
+{
+  "name": "@dsh-external/deskpet-guard",
+  "version": "0.1.0",
+  "description": "Agent 行为守护桌宠：跨 agent 监控可疑外传（加密打包直传对象存储 / DNS 外泄线索 / 敏感密钥被读），发现即告警，明确确认后按「一次一个」终止目标 agent；事件写入只追加 guard-events.jsonl，并通过 DSH host 工具 + MCP(stdio) 供其它 agent 查询",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/types/index.d.ts",
+  "bin": {
+    "deskpet-guard-mcp": "./bin/deskpet-guard-mcp.js"
+  },
+  "files": [
+    "lib",
+    "bin",
+    "docs",
+    "README.md",
+    "SECURITY.md",
+    "LICENSE"
+  ],
+  "license": "BSD-3-Clause",
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "agent-security",
+    "exfiltration-detection",
+    "data-loss-prevention",
+    "mcp",
+    "mcp-server",
+    "windows",
+    "monitoring",
+    "desktop-pet"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2",
+    "cordis": ">=4.0.0-rc <5",
+    "schemastery": "^3.18.0",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.0.1-rc <2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-llm": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "cordis": {
+      "optional": true
+    },
+    "schemastery": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-slots": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.0"
+  },
+  "scripts": {
+    "build": "bash scripts/build.sh",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check": "node --check lib/index.js && node --check lib/api.js && node --check lib/mcp.js && node --check lib/client.js && node --check bin/deskpet-guard-mcp.js",
+    "test": "node test/rules.test.mjs && node test/kill.test.mjs && node test/consistency.test.mjs && node test/api.test.mjs && node test/plugin.test.mjs && node test/mcp.test.mjs && node test/mcp-stdio.test.mjs && node test/client-bundle.test.mjs && node test/panel-ui.test.mjs",
+    "scan": "node lib/index.js",
+    "events": "node lib/index.js --events 20",
+    "status": "node lib/index.js --status",
+    "mcp": "node bin/deskpet-guard-mcp.js",
+    "mcp:list": "node lib/mcp.js --list"
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./mcp": {
+      "default": "./lib/mcp.js"
+    },
+    "./api": {
+      "default": "./lib/api.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "platform": "web"
+    }
+  }
+}

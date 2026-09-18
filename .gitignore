@@ -1,0 +1,16 @@
+# 依赖与构建产物
+node_modules/
+build/
+*.tsbuildinfo
+*.tgz
+
+# 本地/临时
+.env
+*.local.json
+
+# ⚠️ 注意：lib/ 不是构建产物，是**交付物本身**（手写零依赖运行时 + 手写面板 bundle + MCP）。
+#    本机没有 dsh 源码检出，tsc/tsdown 都跑不了，所以 lib/*.js 是权威实现。
+#    千万别把它加进忽略列表 —— 否则 clone 下来的是个跑不起来的壳。
+
+# 本地临时（截图/日志/中间产物，不进仓库）
+.tmp/
