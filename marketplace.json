@@ -1,0 +1,30 @@
+{
+  "name": "deskpet-guard-marketplace",
+  "description": "deskpet-guard —— agent 外传行为守护。本仓库同时是一个「单插件市场」：ZCode / Claude Code 可通过市场方式安装。",
+  "plugins": [
+    {
+      "name": "deskpet-guard",
+      "version": "0.1.0",
+      "description": "Monitor AI agents for suspicious exfiltration (encrypted workspace bundles, object-storage egress, secret-file touches) on Windows, with an append-only event log and two-step human-confirmed termination.",
+      "description_i18n": {
+        "en": "Monitor AI agents for suspicious exfiltration (encrypted workspace bundles, object-storage egress, secret-file touches) on Windows, with an append-only event log and two-step human-confirmed termination.",
+        "zh-CN": "跨 agent 监控可疑外传行为（加密打包、对象存储直连、密钥被触达），事件写入只追加日志，终止进程需两步人工确认。"
+      },
+      "author": {
+        "name": "cny1230",
+        "url": "https://github.com/cny1230"
+      },
+      "license": "BSD-3-Clause",
+      "category": "security",
+      "keywords": [
+        "security",
+        "exfiltration",
+        "monitoring",
+        "mcp",
+        "windows",
+        "agent-security"
+      ],
+      "homepage": "https://github.com/cny1230/deskpet-guard"
+    }
+  ]
+}

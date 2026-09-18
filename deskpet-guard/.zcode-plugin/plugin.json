@@ -1,0 +1,24 @@
+{
+  "name": "deskpet-guard",
+  "version": "0.1.0",
+  "description": "Monitor AI agents for suspicious exfiltration (encrypted workspace bundles, object-storage egress, secret-file touches) on Windows. Append-only event log; termination requires two-step human confirmation, one target per confirmation.",
+  "description_i18n": {
+    "en": "Monitor AI agents for suspicious exfiltration (encrypted workspace bundles, object-storage egress, secret-file touches) on Windows. Append-only event log; termination requires two-step human confirmation, one target per confirmation.",
+    "zh-CN": "跨 agent 监控可疑外传行为（加密打包、对象存储直连、密钥被触达）；事件写入只追加日志；终止进程需两步人工确认，一次只针对一个目标。"
+  },
+  "author": {
+    "name": "cny1230",
+    "url": "https://github.com/cny1230"
+  },
+  "license": "BSD-3-Clause",
+  "homepage": "https://github.com/cny1230/deskpet-guard",
+  "repository": "https://github.com/cny1230/deskpet-guard",
+  "skills": "skills",
+  "mcpServers": {
+    "deskpet-guard": {
+      "command": "npx",
+      "args": ["-y", "deskpet-guard"],
+      "timeoutMs": 90000
+    }
+  }
+}

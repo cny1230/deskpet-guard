@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "deskpet-guard": {
+      "command": "npx",
+      "args": ["-y", "deskpet-guard"]
+    }
+  }
+}

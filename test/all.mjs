@@ -22,6 +22,7 @@ const SUITES = [
   'mcp-stdio',
   'client-bundle',
   'panel-ui',
+  'agent-plugin-wrapper',
 ]
 
 let cases = 0

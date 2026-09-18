@@ -1,0 +1,20 @@
+{
+  "name": "deskpet-guard",
+  "version": "0.1.0",
+  "description": "Monitor AI agents for suspicious exfiltration (encrypted workspace bundles, object-storage egress, secret-file touches) on Windows. Append-only event log; termination requires two-step human confirmation, one target per confirmation.",
+  "author": {
+    "name": "cny1230",
+    "url": "https://github.com/cny1230"
+  },
+  "license": "BSD-3-Clause",
+  "homepage": "https://github.com/cny1230/deskpet-guard",
+  "repository": "https://github.com/cny1230/deskpet-guard",
+  "keywords": [
+    "security",
+    "exfiltration",
+    "monitoring",
+    "mcp",
+    "windows"
+  ],
+  "skills": "skills"
+}
