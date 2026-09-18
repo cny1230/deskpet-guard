@@ -16,6 +16,7 @@ import { readPetState, petStatusText, launchPet, stopPet, listPetLocks, PET_FACE
 
 let pass = 0
 let fail = 0
+let skipped = 0
 const cases = []
 const test = (n, f) => cases.push([n, f])
 
@@ -126,6 +127,13 @@ test('launchPet：用 PowerShell 的 Start-Process 分离启动（不是 Node �
 })
 
 test('不同客户端各开一只（DSH 有、ZCode 也有），互不顶掉', () => {
+  // 桌宠窗口是 Windows 实现：非 Windows 上 launchPet 会先返回"不支持"，
+  // 这些断言在那边没有意义（CI 的 ubuntu 曾因此整条红掉）→ 显式跳过并计数。
+  if (process.platform !== 'win32') {
+    skipped++
+    console.log('  SKIP  不同客户端各开一只（桌宠为 Windows 实现）')
+    return
+  }
   const dir = mkdtempSync(join(tmpdir(), 'deskpet-guard-pet-multi-'))
   const spawned = []
   const fake = (client) => (cmd, args) => {
@@ -155,6 +163,11 @@ test('不同客户端各开一只（DSH 有、ZCode 也有），互不顶掉', (
 })
 
 test('launchPet：同一客户端已有活着的实例时跳过', () => {
+  if (process.platform !== 'win32') {
+    skipped++
+    console.log('  SKIP  同一客户端已有活着的实例时跳过（桌宠为 Windows 实现）')
+    return
+  }
   writeFileSync(join(DATA, 'pet-zcode.lock'), JSON.stringify({ pid: process.pid, at: Date.now(), client: 'zcode' }))
   let spawned = 0
   const r = launchPet({
