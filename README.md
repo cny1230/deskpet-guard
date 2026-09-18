@@ -238,8 +238,10 @@ test/*.mjs        8 个离线套件；test/dom-shim.mjs 是跑面板用的极简
 ## 测试
 
 ```bash
-npm test        # 9 个套件 / 126 例（离线：不联网、不杀进程、不需要 DSH、不需要 Windows）
+npm test        # 9 个套件 / 126 例（= node test/all.mjs；离线：不联网、不杀进程、不需要 DSH、不需要 Windows）
 npm run check   # 交付 JS 的语法自检（本仓库没有编译步骤兜底）
+node test/panel-ui.test.mjs   # 只跑面板行为（DOM shim 里挂真面板）
+node test/mcp-stdio.test.mjs  # 只跑 MCP 传输层（单请求单响应 / close 不吞响应）
 ```
 
 | 套件 | 关注点 |
