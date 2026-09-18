@@ -23,6 +23,8 @@ const SUITES = [
   'client-bundle',
   'panel-ui',
   'agent-plugin-wrapper',
+  'pet',
+  'agentid',
 ]
 
 let cases = 0

@@ -112,7 +112,8 @@ test('真 bin 入口的 stdio 往返（沙箱禁止管道捕获时跳过）', ()
       input: INPUT,
       encoding: 'utf8',
       timeout: 30000,
-      env: { ...process.env, DESKPET_GUARD_ENDPOINT: 'http://127.0.0.1:9' },
+      // 别在测试里弹桌宠窗口
+      env: { ...process.env, DESKPET_GUARD_ENDPOINT: 'http://127.0.0.1:9', DESKPET_GUARD_NO_PET: '1' },
     })
   } catch (e) {
     const msg = String(e?.message || e) + String(e?.stderr || '')
