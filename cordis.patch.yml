@@ -1,0 +1,16 @@
+# dsh-super-injector bundle 层之外的标准安装层。
+#
+# 用途：让本插件能被**标准路径**装进 profile ——
+#   dsh plugin --profile web add github:cny1230/deskpet-guard
+# 该命令会在 profile 里 pnpm 安装本包，并读取本文件（package.json 的
+# dsh.bundle.patch 指向它）插入一条 loader entry。
+#
+# 与 dev_inject_plugin（超级模组注入器）的关系：
+#   · 注入器路径：junction + loader.create，**不需要**本文件，适合开发热重载；
+#   · 标准路径：本文件 + dsh plugin add，适合"从市场/仓库一键装"。
+#   两条路径选一条即可（同时用会让插件被加载两次）。先用注入器玩过的人，
+#   要切标准装法时先 `dev_uninject_plugin {"match":"deskpet-guard"}`。
+- insert:
+    - id: deskpet-guard
+      name: '@dsh-external/deskpet-guard'
+      config: {}

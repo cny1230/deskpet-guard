@@ -74,20 +74,35 @@
 
 ### 方式一：装进 DSH（插件形态，推荐）
 
-```bash
-git clone https://github.com/cny1230/deskpet-guard.git D:/deskpet-guard
+**标准安装（推荐，等同插件市场的"一键装"）**：本包带 `cordis.patch.yml`（`dsh.bundle.patch`），
+所以既能从仓库装，也能在支持的市场里一键装：
 
-# 在 DSH 会话里（注入器环境）：
-#   dev_inject_plugin {"dir":"D:/deskpet-guard"}
-# 卸载：
-#   dev_uninject_plugin {"match":"deskpet-guard"}
+```bash
+# 仓库直装（pnpm 会把本包装进 web profile，并按 cordis.patch.yml 插入 loader entry）
+dsh plugin --profile web add github:cny1230/deskpet-guard
+
+# 若已发布到 npm（见下"发布状态"），也可以按包名装：
+# dsh plugin --profile web add @dsh-external/deskpet-guard
 ```
 
-注入后你会得到：
+**注入器安装（开发/热重载用，免重启）**：
+
+```bash
+git clone https://github.com/cny1230/deskpet-guard.git D:/deskpet-guard
+# 在 DSH 会话里：
+#   dev_inject_plugin {"dir":"D:/deskpet-guard"}      # 注入
+#   dev_uninject_plugin {"match":"deskpet-guard"}     # 卸载
+```
+
+> ⚠️ 两条路径**选一条**：同时用会让插件被加载两次（工具重名、面板重复）。
+> 从注入器切到标准安装前，先 `dev_uninject_plugin`。
+
+装好后你会得到：
 
 - 5 个 host 工具：`guard_status` / `guard_events` / `guard_scan` / `guard_prepare_kill` / `guard_confirm_kill`
 - 右下角常驻**桌宠**（`shell.overlay`）+ 会话侧栏**详情面板**（`conversation.view`）
 - 本地 HTTP API：`GET /deskpet-guard/api/status|events`、`POST /deskpet-guard/api/scan|prepare-kill|confirm-kill`
+- MCP server：`npx deskpet-guard-mcp`（npm 发布后）或 `node <repo>/bin/deskpet-guard-mcp.js`
 
 配置（`apply(ctx, config)` 的 config）：
 
@@ -288,6 +303,27 @@ node test/mcp-stdio.test.mjs  # 只跑 MCP 传输层（单请求单响应 / clos
 - [ ] 更多 agent 画像与实证
 - [ ] 系统托盘通知 / 声音
 - [ ] macOS / Linux 探针
+
+## 发布状态（能不能在插件市场里搜到）
+
+| 渠道 | 状态 | 说明 |
+|---|---|---|
+| GitHub 仓库 | ✅ 已发布 | <https://github.com/cny1230/deskpet-guard>（public，CI 绿） |
+| `dsh plugin add github:…` | ✅ 可用 | 本包带 `cordis.patch.yml` + `dsh.bundle.patch`，标准安装路径能装 |
+| GitHub topic `dsh-plugin` | ⏳ 待打 | dsh.so 这类注册中心靠该 topic **自动索引**仓库；现在还没打 |
+| npm 包 | ⏳ 未发布 | `deskpet-guard` / `@cny1230/deskpet-guard` 名字都还空着；当前 `"private": true` 会挡住发布 |
+| dsh.so / awesome-dsh-plugin 收录 | ⏳ 待提交 | 要求 = topic + 合法 cordis manifest + SPDX 许可 + 可验证的 install 命令（后三项已满足） |
+
+**差的三步**（都很快，但需要账号态操作）：
+
+1. 仓库 Settings → Topics 加：`dsh-plugin`、`dsh`、`deepseek-harness`、`mcp`、`mcp-server`、`agent-security`
+   —— 打上 `dsh-plugin` 就会被注册中心自动索引；
+2. 想上 npm：删掉 `package.json` 里的 `"private": true` → `npm publish`
+   （若要按包名装，建议把 `@dsh-external/…` 改成你自己可发布的 scope，如 `@cny1230/…`）；
+3. 到 dsh.so / awesome-dsh-plugin 的 Submit 页提交仓库链接。
+
+在此之前，"能用"的路径是：**GitHub 直装**（`dsh plugin --profile web add github:cny1230/deskpet-guard`）
+或 **MCP 直连**（`node <repo>/bin/deskpet-guard-mcp.js`）。
 
 ## 许可
 

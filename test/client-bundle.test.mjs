@@ -142,6 +142,17 @@ test('package.json 的 host 入口与类型指针不悬空', () => {
   assert.ok(existsSync(fileURLToPath(new URL(pkg.bin['deskpet-guard-mcp'], ROOT))), 'bin 指向不存在的文件')
 })
 
+test('bundle 补丁层存在且被声明（市场一键装 dsh plugin add 的前提）', () => {
+  // dsh.so / 生态注册中心会按 package.json 验证 cordis manifest；
+  // 缺 dsh.bundle.patch 的包没法用标准路径安装（只能靠注入器）。
+  assert.ok(pkg.dsh && pkg.dsh.bundle && pkg.dsh.bundle.patch, 'package.json 缺 dsh.bundle.patch')
+  assert.ok(existsSync(fileURLToPath(new URL(pkg.dsh.bundle.patch, ROOT))), 'patch 文件不存在: ' + pkg.dsh.bundle.patch)
+  const patch = readFileSync(fileURLToPath(new URL(pkg.dsh.bundle.patch, ROOT)), 'utf8')
+  assert.match(patch, /insert:/, 'patch 里没有 insert 段')
+  assert.ok(patch.includes("name: '" + pkg.name + "'"), 'patch 插入的 name 与包名不一致')
+  assert.ok(pkg.files.includes('cordis.patch.yml'), 'files 列表漏了 cordis.patch.yml（发布后会缺文件）')
+})
+
 test('node --check：产物语法有效（无构建也要能加载）', () => {
   execFileSync(process.execPath, ['--check', clientPath], { stdio: ['ignore', 'pipe', 'pipe'] })
 })
