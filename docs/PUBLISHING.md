@@ -12,7 +12,7 @@
 | GitHub topics（9 个，含 `dsh-plugin`） | ✅ 已打 | `GET /repos/cny1230/deskpet-guard` 回读可见 |
 | GitHub 搜索索引 | ✅ 已索引 | `search/repositories?q=repo:cny1230/deskpet-guard` 命中 1 条，带全部 topics |
 | dsh.so 收录 | ✅ **已提交**（2026-09-18） | 用 dsh.so 自己的提交页跑完 checker 后点 `Submit to dsh.so`，`POST /api/submit` → **HTTP 200**、页面 `✓ Submitted`；该站明说"files the registry entry and scan report as an issue in the dsh.so backend via the site API — no GitHub account required"。`/artifact/deskpet-guard/` 仍 404 = 站点静态重建尚未跑 |
-| npm 包 | ✅ 已发布（最新 **0.2.8**） | [`deskpet-guard`](https://www.npmjs.com/package/deskpet-guard)（BSD-3-Clause / maintainer `cny1230`）；实测 `npx -y deskpet-guard` 从 npm 拉下来跑通 MCP。**0.3.0 待发布**（2026-09-28 实测 `~/.npmrc` 的 bypass token 已失效，whoami 401，需按下面"步骤 2"重配后 `npm publish`） |
+| npm 包 | ✅ **已发布（最新 0.3.0，2026-09-28）** | [`deskpet-guard`](https://www.npmjs.com/package/deskpet-guard)（BSD-3-Clause / maintainer `cny1230`）；实测官方源直装 0.3.0 → `initialize` 报 v0.3.0 + `tools/list` 5 工具。注意：`~/.npmrc` 默认指向 npmmirror，镜像同步有延迟，验证一律带 `--registry=https://registry.npmjs.org/` |
 | MCP 官方 registry | ⏳ 未发布 | 需要已发布的包 + 按其 schema 生成 `server.json` |
 
 ### dsh.so checker 对我们的实测结论（2026-09-18，提交时同批上报）
@@ -88,10 +88,15 @@ awesome-dsh-plugin / dsh-plugin-hub 一类清单站：按其 README 的 PR 格�
 **发布后验证（实测）**：
 
 ```bash
-npm view deskpet-guard            # 0.1.0 / BSD-3-Clause / bin: deskpet-guard + deskpet-guard-mcp
+npm view deskpet-guard --registry=https://registry.npmjs.org/   # 0.3.0 / BSD-3-Clause / bin: deskpet-guard + deskpet-guard-mcp
 printf '<initialize + tools/list>\n' | npx -y deskpet-guard
 # → 2 条响应：initialize（deskpet-guard v0.1.0 / protocol 2025-06-18）+ tools/list（5 个工具）
 ```
+
+> ⚠️ Windows 上 `npx -y deskpet-guard@<版本>` 可能报"`'deskpet-guard' 不是内部或外部命令`"
+> （npx 垫片解析的坑，2026-09-28 实测）—— 与包无关。可靠验证方式是绕开垫片直装直跑：
+> `npm install --prefix <临时目录> --registry=https://registry.npmjs.org/ deskpet-guard@<版本>`
+> 然后 `node <临时目录>/node_modules/deskpet-guard/bin/deskpet-guard-mcp.js` 喂 JSON-RPC。
 
 发布后即可：`npx deskpet-guard`（MCP 客户端）与 `dsh plugin --profile web add deskpet-guard`。
 
