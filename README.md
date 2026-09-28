@@ -141,18 +141,28 @@ node lib/mcp.js --list               # 看看工具清单与数据目录
 | 规则 | 触发条件 | 级别 | 建议 |
 |---|---|---|---|
 | `R0-probe-degraded` | 探针不可用 | medium/high | 告警（**防止"假安全"**） |
-| `R1-agent-to-object-storage` | agent 进程连向 OSS/S3/COS | **critical** | **建议终止**（两步确认） |
+| `R1-agent-to-object-storage` | agent 进程连向 OSS/S3/COS。远端拿到的是 **IP**（`Get-NetTCPConnection`），会先用 DNS 缓存反查成域名再匹配；画像也支持直接写 IPv4/CIDR | **critical** | **建议终止**（两步确认，执行前有 PID 复用验证） |
 | `R2-fresh-bundle-artifact` | 10 分钟内出现打包产物 | high | 告警 |
 | `R3-bundle-burst` | 5 分钟内成簇刷包 ≥3 | high | 告警 |
-| `R4-secret-file-touched` | 密钥/凭据文件最近被写 | medium | 告警 |
+| `R4-secret-file-touched` | 密钥/凭据文件最近被写（mtime 只能反映"写"，测不到"读"，见已知限制） | medium | 告警 |
 | `R5-dns-object-storage-residue` | DNS 缓存残留对象存储域名 | info | 线索（**非外传证据**） |
 | `R6-agent-alive-quiet` | agent 存活 + 当前外发连接数 | info | 状态显示 |
+| `R7-upload-intent-marker` | indexFiles 指向的状态文件里出现上传通道标记（`pendingUpload` / `uploadOssForm` 等，画像的 `uploadPathPatterns`） | high | 告警（"已表达上传意图"，比"只打包了"更进一层） |
 
 `moodOf()` 把 findings 归一为桌宠表情：`watching`（安静）/ `alert`（中高）/ `panic`（critical）。
 
 **防误报口径**：`egressHostPatterns` 只放"对象存储/文件托管"类域名。
 反例：`*.log.aliyuncs.com` 是阿里云**日志服务**，实测出现在本机 DNS 缓存里，
 但**不能**据此判定"工作区被上传" —— `test/rules.test.mjs` 有专门用例锁死这条。
+
+**事件流防刷屏口径（0.3.0 起）**：同一现象（指纹）落库后默认冷却 1 小时（`DEDUP_COOLDOWN_MS`），
+冷却期内不重复刷事件但计数照加；冷却期后再次出现会记一条 `occurrence` 递增的**复发**事件 ——
+"同一目标反复外传"必须留痕，而不是像旧版那样永久压制。事件文件超过 5MB 改名归档为
+`guard-events.jsonl.1`（改名而非删除，历史段仍完整可读），读取只取尾部 512KB。
+
+**多实例口径（0.3.0 起）**：同一数据目录下多个实例（DSH host + 多个 MCP 客户端）用锁文件选主，
+只有 leader 周期采样，其余降级为只读跟随者（工具/API 仍可用，读 leader 落盘的数据）；
+心跳停更超过 3 个采样周期视为前任已死，自动接管。
 
 ## 面板与桌宠
 
@@ -290,7 +300,7 @@ Windows 上也可以**双击仓库根目录的 `start-pet.cmd`**（默认起 DSH
 ## 测试
 
 ```bash
-npm test        # 9 个套件 / 126 例（= node test/all.mjs；离线：不联网、不杀进程、不需要 DSH、不需要 Windows）
+npm test        # 14 个套件 / 206 例（= node test/all.mjs；离线：不联网、不杀进程、不需要 DSH、不需要 Windows）
 npm run check   # 交付 JS 的语法自检（本仓库没有编译步骤兜底）
 node test/panel-ui.test.mjs   # 只跑面板行为（DOM shim 里挂真面板）
 node test/mcp-stdio.test.mjs  # 只跑 MCP 传输层（单请求单响应 / close 不吞响应）
@@ -299,14 +309,16 @@ node test/mcp-stdio.test.mjs  # 只跑 MCP 传输层（单请求单响应 / clos
 | 套件 | 关注点 |
 |---|---|
 | `rules.test.mjs` | 规则判定 / 防误报（SLS 日志域名反例）/ 画像扩展性 |
-| `kill.test.mjs` | 处置链路安全：无确认不可能误杀、token 一次性、**一次确认只杀一个** |
+| `kill.test.mjs` | 处置链路安全：无确认不可能误杀、token 一次性、**一次确认只杀一个**、执行前 **PID 复用验证**（进程名+创建时间对不上即拒绝） |
 | `consistency.test.mjs` | `src/guard/*.ts` 与 `lib/*.js` 双实现一致性 |
 | `api.test.mjs` | HTTP API 与鉴权边界：预检拒绝、跨源拒绝、secret 路径、body 边界 |
-| `plugin.test.mjs` | 假 ctx 跑 `apply()`：工具真注册（走 `ctx.effect`）、API 真挂载、两步链路连通、audit 必拒 |
+| `plugin.test.mjs` | 假 ctx 跑 `apply()`：工具真注册（走 `ctx.effect`）、API 真挂载、两步链路连通、audit 必拒、**第二实例降级为只读跟随者** |
 | `mcp.test.mjs` | JSON-RPC 往返 + **工具名/HTTP 路径跨文件一致** + host 不可达的降级语义 |
 | `mcp-stdio.test.mjs` | 传输层：单请求单响应（防双 server 抢 stdin）、close 不吞最后一个响应、stdout 纯净 |
 | `client-bundle.test.mjs` | 面板产物约定、slot 白名单与注入器自检正则、API 路径与 host 一致、不用 `innerHTML`、入口指针不悬空、全量语法检查 |
 | `panel-ui.test.mjs` | 在 DOM shim 里跑**真面板**：渲染、两步确认（第一步不执行）、**轮询不冲掉确认区**、取消、API 不可达、dispose 停轮询 |
+| `events.test.mjs` | 事件流：冷却去重与复发计数、大小轮转归档、真 tail 读取（大文件不整载、行不残缺）、Set 兼容 |
+| `probe.test.mjs` | 探针纯函数：PS 5.1 JSON 归一化（单元素/BOM/垃圾前缀/截断判降级）、secretFiles 通配拆分 |
 
 ## 已知限制（读这里再决定要不要用）
 
@@ -319,6 +331,12 @@ node test/mcp-stdio.test.mjs  # 只跑 MCP 传输层（单请求单响应 / clos
 5. **文件名匹配是启发式**：打包产物靠文件名/扩展名识别，改名可绕过。
 6. **没有基线学习**：新装的 agent 一律按陌生进程处理，误报会随安装量上升。
 7. **`killMode:'execute'` 会真的杀进程**（需两步人工确认 + 一次一个）。生产环境建议先用 `audit` 跑一段时间。
+8. **R1 的域名反查依赖本机 DNS 缓存**：如果目标 agent 走加密 DNS（DoH）或自建解析，缓存里可能
+   没有对应记录 → 反查不到 → R1 漏报（此时 R5 也不会有线索）。对已知固定出口，画像里直接写
+   IP/CIDR 可以兜底。另外反查基于"IP → 曾解析过的域名"，CDN 共享 IP 理论上可能串出误报 ——
+   所以 R1 的 evidence 永远带 `resolvedHost`（实际命中的域名），人工复核一眼可辨。
+9. **R4 实际只测"写"不测"读"**：mtime 不反映读取行为（Windows 默认还禁用 last-access 更新）。
+   要测"密钥被读"需要 ETW/Sysmon 一类内核遥测，目前不做（见 Roadmap）。
 
 ## 安全
 
@@ -359,6 +377,27 @@ node test/mcp-stdio.test.mjs  # 只跑 MCP 传输层（单请求单响应 / clos
 用法汇总：**GitHub 直装**（`dsh plugin --profile web add github:cny1230/deskpet-guard`）、
 **npm 装**（`dsh plugin --profile web add deskpet-guard`）、**MCP**（`npx deskpet-guard`）。
 逐步操作与自检清单见 **[docs/PUBLISHING.md](docs/PUBLISHING.md)**。
+
+## 变更记录
+
+### 0.3.0（2026-09-28）—— 检测主链路修复 + 处置安全加固
+
+- **R1 修复（关键）**：远端 IP 先经 DNS 缓存反查成域名再匹配 `egressHostPatterns` ——
+  修复前 R1 拿 IP 比域名正则，**真实环境永不命中**（测试夹具把域名塞进了 IP 字段，
+  把错误假设锁进了测试）。`egressHostPatterns` 同时支持 IPv4 字面量 / CIDR。
+- **新增 R7 上传意图标记**：indexFiles 指向的状态文件里出现 `pendingUpload` / `uploadOssForm`
+  等明文标记 → high（画像的 `uploadPathPatterns` 字段首次接入规则引擎）。
+- **处置安全**：confirm 执行前做 PID 复用验证（进程名 + 创建时间与确认时不一致即拒绝，
+  防 10 分钟窗口内 PID 被回收复用误杀无辜进程）；kill 计划列出目标子进程（仅展示）。
+- **事件流**：去重从"永久压制"改为"冷却期 + 复发计数"；超 5MB 轮转归档；读取改真 tail。
+- **多实例**：同一数据目录单采样者锁，其余实例降级为只读跟随者。
+- **修复**：`underDataRoot` 前缀越界误匹配（`.zcode-v2` 不再认成 `.zcode`）；
+  cursor 画像 `secretFiles` 通配静默失效；探针输出损坏时判为降级（R0）而非空数据；
+  R4 的目录匹配统一转义口径（与 TS 镜像一致）。
+
+### 0.2.8 及以前
+
+见 `git log`。
 
 ## 许可
 

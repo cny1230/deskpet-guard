@@ -25,6 +25,8 @@ const SUITES = [
   'agent-plugin-wrapper',
   'pet',
   'agentid',
+  'events',
+  'probe',
 ]
 
 let cases = 0

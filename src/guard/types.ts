@@ -64,6 +64,28 @@ export interface SecretTouch {
   mtimeMs: number
 }
 
+/**
+ * indexFiles 命中的状态/索引文件（供 R7 判定"上传意图"）。
+ * text 只用于特征匹配（uploadPathPatterns），绝不进事件流。
+ */
+export interface UploadMarkerFile {
+  path: string
+  bytes: number
+  mtimeMs: number
+  /** 文件文本（探针侧截断，默认 ≤256KB）。 */
+  text: string
+}
+
+/** 进程详情（R1 归属与处置验证的关键输入；探针可失败，字段可缺省）。 */
+export interface ProcDetail {
+  pid: number
+  ppid: number
+  name: string
+  cmd: string
+  /** 进程创建时间（Win32_Process CreationDate 的原始字符串，用于 PID 复用验证）。 */
+  createdAt?: string
+}
+
 /** 一次采样的完整结果（规则引擎的唯一输入）。 */
 export interface ProbeResult {
   atMs: number
@@ -76,6 +98,10 @@ export interface ProbeResult {
   dns: DnsRecord[]
   bundles: BundleFile[]
   secrets: SecretTouch[]
+  /** indexFiles 命中的状态文件（R7 输入；探针未采集时缺省）。 */
+  uploads?: UploadMarkerFile[]
+  /** 进程详情（pid/ppid/cmdline/创建时间；归属与处置验证用，探针失败时缺省）。 */
+  procDetails?: ProcDetail[]
 }
 
 export type Severity = 'info' | 'medium' | 'high' | 'critical'

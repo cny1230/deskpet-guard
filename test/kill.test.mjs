@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { confirmPlan, prepareKill, killByPids } from '../lib/index.js'
+import { confirmPlan, prepareKill, killByPids, verifyKillTarget, sameProcessName } from '../lib/index.js'
 
 const T = 1_800_000_000_000
 const critical = (pid) => ({
@@ -27,6 +27,12 @@ const critical = (pid) => ({
     },
   ],
   mood: { mood: 'panic', headline: 'x', worstSeverity: 'critical' },
+})
+
+/** 带 procDetails 的版本：prepare 靠它固化"进程名 + 创建时间 + 子进程"。 */
+const criticalWithProc = (pid, details) => ({
+  ...critical(pid),
+  probe: { ...critical(pid).probe, procDetails: details },
 })
 
 let pass = 0
@@ -203,6 +209,96 @@ test('逐个确认: 两个目标可分别确认，互不影响', () => {
   })
   assert.equal(r1.ok, true)
   assert.deepEqual(got, [2222, 1111])
+})
+
+// ── PID 复用防护（prepare 与 confirm 之间目标可能退出、PID 被回收复用）──
+test('sameProcessName: 大小写与 .exe 后缀不敏感，空名永不相等', () => {
+  assert.equal(sameProcessName('ZCode', 'ZCode.exe'), true)
+  assert.equal(sameProcessName('zcode.exe', 'ZCode'), true)
+  assert.equal(sameProcessName('ZCode.exe', 'ZCode.EXE'), true)
+  assert.equal(sameProcessName('ZCode.exe', 'Other.exe'), false)
+  assert.equal(sameProcessName('', 'Other.exe'), false)
+})
+
+test('verifyKillTarget: 名称与创建时间都对得上 → 放行', () => {
+  const v = verifyKillTarget(
+    { pid: 100, name: 'ZCode.exe', createdAt: '2026-09-19T00:00:00+08:00' },
+    [{ pid: 100, name: 'ZCode.exe', createdAt: '2026-09-19T00:00:00+08:00' }],
+  )
+  assert.equal(v.ok, true)
+})
+
+test('verifyKillTarget: 进程已不存在 → 拒绝', () => {
+  const v = verifyKillTarget({ pid: 100, name: 'ZCode.exe' }, [])
+  assert.equal(v.ok, false)
+  assert.match(String(v.error), /已不存在/)
+})
+
+test('verifyKillTarget: PID 被别的进程顶上 → 拒绝（防误杀无辜进程）', () => {
+  const v = verifyKillTarget(
+    { pid: 100, name: 'ZCode.exe', createdAt: 'A' },
+    [{ pid: 100, name: 'msedge.exe', createdAt: 'B' }],
+  )
+  assert.equal(v.ok, false)
+  assert.match(String(v.error), /复用/)
+})
+
+test('verifyKillTarget: 名称相同但创建时间变了 → 拒绝', () => {
+  const v = verifyKillTarget(
+    { pid: 100, name: 'ZCode.exe', createdAt: '2026-09-19T00:00:00+08:00' },
+    [{ pid: 100, name: 'ZCode.exe', createdAt: '2026-09-28T10:00:00+08:00' }],
+  )
+  assert.equal(v.ok, false)
+  assert.match(String(v.error), /复用/)
+})
+
+test('killByPids: procTable 校验失败时不碰 exec（token 已作废）', () => {
+  const details = [
+    { pid: 1212, ppid: 1, name: 'ZCode.exe', cmd: '', createdAt: 'A' },
+  ]
+  const plan = prepareKill(DATA, criticalWithProc(1212, details))
+  let execCalled = false
+  const r = killByPids(DATA, plan.confirmToken, {
+    procTable: [{ pid: 1212, name: 'msedge.exe', createdAt: 'B' }],
+    exec: () => {
+      execCalled = true
+      return { ok: true }
+    },
+  })
+  assert.equal(r.ok, false)
+  assert.match(String(r.error), /复用/)
+  assert.equal(execCalled, false, '验证失败绝不能执行终止')
+})
+
+test('killByPids: procTable 校验通过时正常执行', () => {
+  const details = [
+    { pid: 1313, ppid: 1, name: 'ZCode.exe', cmd: '', createdAt: 'A' },
+  ]
+  const plan = prepareKill(DATA, criticalWithProc(1313, details))
+  let got = null
+  const r = killByPids(DATA, plan.confirmToken, {
+    procTable: [{ pid: 1313, name: 'ZCode.exe', createdAt: 'A' }],
+    exec: (pids) => {
+      got = pids
+      return { ok: true }
+    },
+  })
+  assert.equal(r.ok, true)
+  assert.deepEqual(got, [1313])
+})
+
+test('prepareKill: 从 procDetails 固化创建时间与子进程清单（展示用）', () => {
+  const details = [
+    { pid: 1414, ppid: 1, name: 'ZCode.exe', cmd: '', createdAt: 'T-A' },
+    { pid: 1515, ppid: 1414, name: 'node.exe', cmd: 'mcp-server', createdAt: 'T-B' },
+    { pid: 1616, ppid: 1414, name: 'node.exe', cmd: 'mcp-server-2', createdAt: 'T-C' },
+  ]
+  const plan = prepareKill(DATA, criticalWithProc(1414, details))
+  assert.equal(plan.confirmTarget.createdAt, 'T-A')
+  assert.deepEqual(plan.confirmTarget.children, [
+    { pid: 1515, name: 'node.exe' },
+    { pid: 1616, name: 'node.exe' },
+  ])
 })
 
 for (const [n, f] of cases) {

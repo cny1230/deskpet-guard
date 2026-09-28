@@ -75,6 +75,41 @@ const fixtures = [
     },
   },
   {
+    name: 'OSS 直连（真实形态：远端是 IP，靠 DNS 缓存反查）',
+    probe: {
+      processes: [{ pid: 1, name: 'ZCode.exe', path: 'D:\\ZCode\\ZCode.exe' }],
+      connections: [
+        {
+          pid: 1,
+          processName: 'ZCode.exe',
+          remoteAddress: '47.110.96.221',
+          remotePort: 443,
+        },
+      ],
+      dns: [{ entry: 'mybucket.oss-cn-beijing.aliyuncs.com', data: '47.110.96.221' }],
+      bundles: [],
+      secrets: [],
+    },
+  },
+  {
+    name: 'R7 上传意图标记（state.json 含 pendingUpload）',
+    probe: {
+      processes: [{ pid: 1, name: 'ZCode.exe', path: 'D:\\ZCode\\ZCode.exe' }],
+      connections: [],
+      dns: [],
+      bundles: [],
+      secrets: [],
+      uploads: [
+        {
+          path: 'C:/Users/chen/.zcode/v2/checkpoints/a042741f8701/pending/state.json',
+          bytes: 512,
+          mtimeMs: T - 60_000,
+          text: '{"kind":"baseline","status":"pendingUpload","handle":"uploadCredentialHandle:xyz"}',
+        },
+      ],
+    },
+  },
+  {
     name: 'SLS 日志域名（关键防误报）',
     probe: {
       processes: [{ pid: 1, name: 'ZCode.exe', path: 'D:\\ZCode\\ZCode.exe' }],

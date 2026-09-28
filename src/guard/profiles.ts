@@ -33,6 +33,10 @@ export const BUILTIN_PROFILES: AgentProfile[] = [
       '/api/v1/snapshot/upload-credential',
       'uploadOssForm',
       'repo-snapshot-upload',
+      // state.json 里的上传意图标记（2026-09-18 实测的明文字段）
+      'pendingUpload',
+      'activeUpload',
+      'uploadCredentialHandle',
     ],
     notes:
       '静态证据（2026-09-18 实测）：app.asar 内含 uploadOssForm/buildOssFormFields，' +

@@ -325,6 +325,27 @@ test('VERSION 与 package.json 一致（对外报的版本号不能各说各话�
   assert.equal(VERSION, pkg.version)
 })
 
+// ── 单采样者锁：同一 dataDir 的第二个实例必须降级为只读跟随者（0.3.0）──
+test('单采样者锁: 第二个实例不周期采样，但工具照常注册', () => {
+  let followerScanCount = 0
+  const second = fakeCtx()
+  apply(second.ctx, {
+    dataDir: DATA,
+    intervalMs: 60000,
+    profiles: [],
+    killMode: 'audit',
+    desktopPet: false,
+    scan: () => {
+      followerScanCount += 1
+      return stubScan()
+    },
+  })
+  assert.equal(followerScanCount, 0, 'apply 时的首次 tick 不应采样')
+  for (const iv of second.intervals) iv.fn()
+  assert.equal(followerScanCount, 0, '周期 tick 同样不采样（避免与 leader 重复打系统）')
+  assert.equal(second.tools.registered.length, 5, '跟随者的只读工具仍要可用')
+})
+
 for (const [n, f] of cases) {
   try {
     await f()

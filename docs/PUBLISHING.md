@@ -12,7 +12,7 @@
 | GitHub topics（9 个，含 `dsh-plugin`） | ✅ 已打 | `GET /repos/cny1230/deskpet-guard` 回读可见 |
 | GitHub 搜索索引 | ✅ 已索引 | `search/repositories?q=repo:cny1230/deskpet-guard` 命中 1 条，带全部 topics |
 | dsh.so 收录 | ✅ **已提交**（2026-09-18） | 用 dsh.so 自己的提交页跑完 checker 后点 `Submit to dsh.so`，`POST /api/submit` → **HTTP 200**、页面 `✓ Submitted`；该站明说"files the registry entry and scan report as an issue in the dsh.so backend via the site API — no GitHub account required"。`/artifact/deskpet-guard/` 仍 404 = 站点静态重建尚未跑 |
-| npm 包 | ✅ **已发布** | [`deskpet-guard@0.1.0`](https://www.npmjs.com/package/deskpet-guard)（BSD-3-Clause / maintainer `cny1230`）；实测 `npx -y deskpet-guard` 从 npm 拉下来跑通 MCP（initialize + 5 工具）。发布过程与踩到的 2FA 坑见下 |
+| npm 包 | ✅ 已发布（最新 **0.2.8**） | [`deskpet-guard`](https://www.npmjs.com/package/deskpet-guard)（BSD-3-Clause / maintainer `cny1230`）；实测 `npx -y deskpet-guard` 从 npm 拉下来跑通 MCP。**0.3.0 待发布**（2026-09-28 实测 `~/.npmrc` 的 bypass token 已失效，whoami 401，需按下面"步骤 2"重配后 `npm publish`） |
 | MCP 官方 registry | ⏳ 未发布 | 需要已发布的包 + 按其 schema 生成 `server.json` |
 
 ### dsh.so checker 对我们的实测结论（2026-09-18，提交时同批上报）
@@ -101,7 +101,7 @@ printf '<initialize + tools/list>\n' | npx -y deskpet-guard
 
 1. **改版本号（两处必须一致，有测试拦）**：`package.json` 的 `version`
    与 `lib/index.js` 的 `export const VERSION`（`test/plugin.test.mjs` 里那条 `VERSION 与 package.json 一致`）；
-2. 跑自检：`npm test`（9 套件 / 127 例）+ `npm run check`（`prepublishOnly` 发布前还会再跑一遍）；
+2. 跑自检：`npm test`（14 套件 / 206 例）+ `npm run check`（`prepublishOnly` 发布前还会再跑一遍）；
 3. 提交推送并等 CI 绿：`git push` → GitHub Actions；
 4. 发布：`npm publish`（`~/.npmrc` 里已有 bypass token；若已 revoke，按上面"步骤 2"重新配一个）；
 5. 发布后验证：`npm view deskpet-guard version`、`npx -y deskpet-guard@<新版本>`；
@@ -120,7 +120,7 @@ printf '<initialize + tools/list>\n' | npx -y deskpet-guard
 
 ## 4. 发布前自检清单
 
-- [ ] `npm test` 全绿（9 套件 / 127 例）+ `npm run check`
+- [ ] `npm test` 全绿（14 套件 / 206 例）+ `npm run check`
 - [ ] CI 绿（GitHub Actions：ubuntu + windows × node 22/24）
 - [ ] `package.json` 版本号 == `lib/index.js` 的 `VERSION`（有测试锁）
 - [ ] `npm pack --dry-run` 的文件列表包含 `cordis.patch.yml`（漏了 → 装上也跑不起来）

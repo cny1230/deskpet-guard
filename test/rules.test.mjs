@@ -255,6 +255,147 @@ test('扩展性: 用户自定义 profile 无需改规则代码即可生效', () 
   assert.ok(fs.find((f) => f.ruleId === 'R2-fresh-bundle-artifact' && f.profileId === 'my-agent'))
 })
 
+// ── 2b. R1 真实形态：探针给的是 IP（Get-NetTCPConnection.RemoteAddress），
+//         必须经 DNS 缓存反查成域名才能匹配 egressHostPatterns。
+//         修复前 R1 只吃域名字符串，真实环境永不命中。
+test('R1 真实形态: 远端 IP + DNS 缓存反查出 OSS 域名 → critical', () => {
+  const fs = evaluate(
+    baseProbe({
+      processes: [proc('ZCode.exe', 'D:\\ZCode\\ZCode.exe', 20940)],
+      connections: [conn(20940, '47.110.96.221')],
+      dns: [
+        { entry: 'mybucket.oss-cn-beijing.aliyuncs.com', data: '47.110.96.221' },
+        { entry: 'example.com', data: '47.110.96.221' },
+      ],
+    }),
+    profiles,
+  )
+  const r1 = fs.find((f) => f.ruleId === 'R1-agent-to-object-storage')
+  assert.ok(r1, 'IP 经 DNS 反查后应命中 R1')
+  assert.equal(r1.evidence.resolvedHost, 'mybucket.oss-cn-beijing.aliyuncs.com', '证据应带出实际命中的域名')
+})
+
+// ── 2c. R1 防误报（反查路径）：IP 反查出来的只有日志服务域名 → 不报
+test('R1 防误报: IP 只反查出 SLS 日志域名时不判为对象存储直连', () => {
+  const fs = evaluate(
+    baseProbe({
+      processes: [proc('ZCode.exe', 'D:\\ZCode\\ZCode.exe', 20940)],
+      connections: [conn(20940, '59.110.96.221')],
+      dns: [{ entry: 'proj-x.cn-beijing.log.aliyuncs.com', data: '59.110.96.221' }],
+    }),
+    profiles,
+  )
+  assert.equal(fs.find((f) => f.ruleId === 'R1-agent-to-object-storage'), undefined)
+})
+
+// ── 2d. R1 新能力：egressHostPatterns 支持 IPv4 字面量与 CIDR
+test('R1 CIDR: 自定义画像可用 10.0.0.0/8 形式的外发目标', () => {
+  const custom = mergeProfiles(
+    [
+      {
+        id: 'cidr-agent',
+        label: 'CidrAgent',
+        processPattern: 'cidragent(\\.exe)?$',
+        dataRoots: [`${HOME}\\AppData\\CidrAgent`],
+        bundlePatterns: [],
+        indexFiles: [],
+        secretFiles: [],
+        egressHostPatterns: ['10.0.0.0/8', '192.168.1.1'],
+        uploadPathPatterns: [],
+      },
+    ],
+    HOME,
+  )
+  const mk = (ip) =>
+    evaluate(
+      baseProbe({
+        processes: [proc('cidragent.exe', 'C:\\x\\cidragent.exe', 5)],
+        connections: [conn(5, ip, 'cidragent.exe')],
+      }),
+      custom,
+    )
+  assert.ok(mk('10.1.2.3').find((f) => f.ruleId === 'R1-agent-to-object-storage'), 'CIDR 应命中')
+  assert.ok(mk('192.168.1.1').find((f) => f.ruleId === 'R1-agent-to-object-storage'), 'IP 字面量应命中')
+  assert.equal(
+    mk('11.0.0.1').find((f) => f.ruleId === 'R1-agent-to-object-storage'),
+    undefined,
+    '网段外 IP 不得命中',
+  )
+})
+
+// ── 7b. R2 归属收紧：数据根的"兄弟目录"（.zcode-v2）不得因前缀相似被认领
+test('R2 负例: 兄弟目录 .zcode-v2 下的包不归因给 ZCode', () => {
+  const fs = evaluate(
+    baseProbe({
+      processes: [proc('ZCode.exe', 'D:\\ZCode\\ZCode.exe', 1)],
+      bundles: [
+        { path: `${HOME}\\.zcode-v2\\evil.tar.gz.enc`, bytes: 100, mtimeMs: T - 1000 },
+      ],
+    }),
+    profiles,
+  )
+  assert.equal(fs.find((f) => f.ruleId === 'R2-fresh-bundle-artifact'), undefined)
+})
+
+// ── 14. R7：indexFiles 状态文件出现上传通道标记（uploadPathPatterns 首次生效）
+test('R7: 状态文件含 pendingUpload/uploadOssForm 标记 → high', () => {
+  const fs = evaluate(
+    baseProbe({
+      processes: [proc('ZCode.exe', 'D:\\ZCode\\ZCode.exe', 1)],
+      uploads: [
+        {
+          path: `${HOME}\\.zcode\\v2\\checkpoints\\a042741f8701\\pending\\state.json`,
+          bytes: 512,
+          mtimeMs: T - 60_000,
+          text: '{"kind":"baseline","status":"pendingUpload","handle":"uploadCredentialHandle:xyz"}',
+        },
+      ],
+    }),
+    profiles,
+  )
+  const r7 = fs.find((f) => f.ruleId === 'R7-upload-intent-marker')
+  assert.ok(r7, '应命中 R7')
+  assert.equal(r7.severity, 'high')
+  assert.equal(r7.profileId, 'zcode')
+  assert.equal(r7.evidence.matchedPattern, 'pendingUpload')
+})
+
+test('R7 负例: 无标记的状态文件 / indexFiles 范围外的文件不报', () => {
+  const base = {
+    processes: [proc('ZCode.exe', 'D:\\ZCode\\ZCode.exe', 1)],
+  }
+  const noMarker = evaluate(
+    baseProbe({
+      ...base,
+      uploads: [
+        {
+          path: `${HOME}\\.zcode\\v2\\checkpoints\\x\\pending\\state.json`,
+          bytes: 10,
+          mtimeMs: T - 1,
+          text: '{"status":"ok"}',
+        },
+      ],
+    }),
+    profiles,
+  )
+  assert.equal(noMarker.find((f) => f.ruleId === 'R7-upload-intent-marker'), undefined)
+  const outside = evaluate(
+    baseProbe({
+      ...base,
+      uploads: [
+        {
+          path: 'C:\\other\\state.json',
+          bytes: 10,
+          mtimeMs: T - 1,
+          text: '{"status":"pendingUpload"}',
+        },
+      ],
+    }),
+    profiles,
+  )
+  assert.equal(outside.find((f) => f.ruleId === 'R7-upload-intent-marker'), undefined)
+})
+
 // ── 执行 ──
 for (const [name, fn] of cases) {
   try {
