@@ -144,8 +144,11 @@ test('stopSampler：只按守护身份锁杀进程（不碰共享选主锁里的
     const r = stopSampler(DATA3)
     assert.equal(r.ok, true)
     assert.equal(r.pid, dummy.pid)
-    await new Promise((r2) => setTimeout(r2, 250))
-    assert.ok(dummy.killed || dummy.exitCode !== null, '守护子进程应被停止')
+    // Linux 上 SIGTERM 退出记录在 signalCode（exitCode 可短暂为 null），轮询等待最多 2 秒
+    for (let i = 0; i < 20 && dummy.exitCode === null && !dummy.killed && !dummy.signalCode; i++) {
+      await new Promise((r2) => setTimeout(r2, 100))
+    }
+    assert.ok(dummy.exitCode !== null || dummy.killed || dummy.signalCode, '守护子进程应被停止')
     assert.equal(process.pid !== dummy.pid, true)
   } finally {
     try { dummy.kill() } catch { /* ignore */ }
