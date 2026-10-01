@@ -233,10 +233,17 @@ lib/toolkit.js    工具定义适配层（defineTool 等价形状，零依赖）
 lib/index.js      核心库 + CLI + DSH 插件入口（apply）
 lib/client.js     面板/桌宠 bundle（手写，DSH ModuleLoader 约定，无需构建）
 lib/mcp.js        MCP stdio server（JSON-RPC 2.0，桥接 HTTP API）
+lib/agentid.js    agent 归属层（进程名/路径/cmdline/画像 → 哪个 agent）
+lib/pet.js        桌宠窗口（PowerShell + WinForms，跨 agent 各一只）
+lib/sampler.js    独立采样守护（0.4.0）：锁选主 + 自托管 HTTP API + endpoint.json，
+                  DSH 不在时它就是唯一采样者（解决"DSH 关了快照过期"）
+lib/dashboard.js  桌宠看板页面（0.4.0）：接真实 API 的正式 UI，守护托管、桌宠窗口同载
+assets/           桌宠形象图（mascot-*.png，随包发布；换图 = 同名覆盖）
 bin/…-mcp.js      MCP 可执行入口
+bin/…-sampler.js  独立采样守护入口（--stop / --status）
 src/guard/*.ts    TS 权威源码（类型），与 lib/*.js 由 consistency 测试锁死一致
 tools/…preview.html  离线预览 harness（浏览器里肉眼验收面板，无需 DSH）
-test/*.mjs        8 个离线套件；test/dom-shim.mjs 是跑面板用的极简 DOM
+test/*.mjs        15 个离线套件；test/dom-shim.mjs 是跑面板用的极简 DOM
 ```
 
 ### 为什么有"手写运行时 + 无构建面板"
@@ -278,6 +285,11 @@ skills / commands / agents / hooks / MCP，**没有"往界面插悬浮组件"的
 | ZCode | 插件 `hooks/hooks.json` 的 `SessionStart`（刷新市场后生效） |
 | 任何 MCP 客户端 | 它的 MCP server 启动时顺带拉起（`.mcp.json` → `npx deskpet-guard`） |
 
+**0.4.0 起还有一层保障**：桌宠/MCP 启动时都会幂等拉起**独立采样守护**
+（`node bin/deskpet-guard-sampler.js`，锁选主与 DSH 宿主协调，同一时刻只有一家采样）。
+DSH 关掉后守护自动接管采样并托管本地看板 —— 各 agent 的桌宠不再出现"快照过期"。
+守护与 DSH 宿主并存时，先到者采样、后来者跟随；`deskpet-guard-sampler --stop` 让位（10 秒内接管）。
+
 **手动开/关**（随时可用，不必等客户端）：
 
 ```bash
@@ -300,7 +312,7 @@ Windows 上也可以**双击仓库根目录的 `start-pet.cmd`**（默认起 DSH
 ## 测试
 
 ```bash
-npm test        # 14 个套件 / 206 例（= node test/all.mjs；离线：不联网、不杀进程、不需要 DSH、不需要 Windows）
+npm test        # 15 个套件 / 213 例（= node test/all.mjs；离线：不联网、不杀进程、不需要 DSH、不需要 Windows）
 npm run check   # 交付 JS 的语法自检（本仓库没有编译步骤兜底）
 node test/panel-ui.test.mjs   # 只跑面板行为（DOM shim 里挂真面板）
 node test/mcp-stdio.test.mjs  # 只跑 MCP 传输层（单请求单响应 / close 不吞响应）
@@ -327,7 +339,10 @@ node test/mcp-stdio.test.mjs  # 只跑 MCP 传输层（单请求单响应 / clos
    （就是它在沙箱里扫出了那 3 个 `.tar.gz.enc`）。要看进程/连接侧，请在**你自己的终端**里跑。
 2. **不是防火墙**（见上）。
 3. **只在 Windows 上有完整探针**；其它平台会明确上报 `unsupported`。
-4. **画像表偏薄**：zcode / cursor / claude-desktop 三条，只有 zcode 有实证画像。
+4. **画像表**：zcode / dsh / cursor / claude-desktop 四条。zcode 与 dsh 桌面端有本机实证
+   （dsh 桌面端 = Electron 应用 `DeepSeek Harness.exe`，user-data 目录
+   `AppData/Roaming/@deepseek-ai/dsh-desktop`；其上传链路未逐一实证，外发画像沿用同厂
+   OSS/S3/COS 口径）。cursor / claude 仅有基础画像 —— 不懂的 agent 就是没有画像，这是待办。
 5. **文件名匹配是启发式**：打包产物靠文件名/扩展名识别，改名可绕过。
 6. **没有基线学习**：新装的 agent 一律按陌生进程处理，误报会随安装量上升。
 7. **`killMode:'execute'` 会真的杀进程**（需两步人工确认 + 一次一个）。生产环境建议先用 `audit` 跑一段时间。

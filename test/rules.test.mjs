@@ -396,6 +396,16 @@ test('R7 负例: 无标记的状态文件 / indexFiles 范围外的文件不报'
   assert.equal(outside.find((f) => f.ruleId === 'R7-upload-intent-marker'), undefined)
 })
 
+// ── 15. DSH 桌面端画像：DeepSeek Harness.exe（进程名不含 dsh 字样）──
+test('DSH 桌面端: DeepSeek Harness.exe 被画像识别并归因到 dsh', () => {
+  const fs = evaluate(
+    baseProbe({ processes: [proc('DeepSeek Harness.exe', 'D:\\DSH\\DeepSeek Harness.exe', 42)] }),
+    profiles,
+  )
+  const r6 = fs.find((f) => f.ruleId === 'R6-agent-alive-quiet' && f.profileId === 'dsh')
+  assert.ok(r6, '应有 dsh 档案的 R6 存活记录')
+})
+
 // ── 执行 ──
 for (const [name, fn] of cases) {
   try {

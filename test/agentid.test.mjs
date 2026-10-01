@@ -34,6 +34,9 @@ test('进程名 → agent（含大小写/带 .exe）', () => {
   assert.equal(agentOfProcess('Claude'), 'claude')
   assert.equal(agentOfProcess('Cursor.exe'), 'cursor')
   assert.equal(agentOfProcess('codex'), 'codex')
+  // DSH 桌面端：进程名不含 dsh 字样，必须靠显式模式识别（2026-09-30 实测）
+  assert.equal(agentOfProcess('DeepSeek Harness'), 'dsh')
+  assert.equal(agentOfProcess('DeepSeek Harness.exe'), 'dsh')
 })
 
 test('进程名认不出 → unknown（不瞎猜）', () => {
@@ -47,6 +50,9 @@ test('路径 → agent（数据目录/工作区标记）', () => {
   assert.equal(agentOfPath('C:\\Users\\chen\\.dsh\\super-injector\\deskpet-guard'), 'dsh')
   assert.equal(agentOfPath('C:\\Users\\chen\\.claude\\projects\\x'), 'claude')
   assert.equal(agentOfPath('C:\\Users\\chen\\Desktop\\report.docx'), 'unknown')
+  // DSH 桌面端安装目录 D:\DSH\ 与 user-data 目录
+  assert.equal(agentOfPath('D:\\DSH\\resources\\app.asar\\dsh'), 'dsh')
+  assert.equal(agentOfPath('C:\\Users\\chen\\AppData\\Roaming\\@deepseek-ai\\dsh-desktop\\Cache'), 'dsh')
 })
 
 test('画像 id → agent；"*" 属全机 → unknown', () => {
@@ -153,6 +159,8 @@ test('桌宠视图：宿主还没写归属数据时，如实退化并标注（�
 test('cmdline → agent：node 形态的 agent 靠命令行认（进程名认不出）', () => {
   // 用正斜杠写 Windows 路径：测试的可读性优先，正则对 / 和 \ 都认
   assert.equal(agentOfCommandLine('node "C:/Program Files/nodejs/node_modules/pnpm/bin/pnpm.mjs" dlx @deepseek-ai/dsh web'), 'dsh')
+  // DSH 桌面端 renderer：cmdline 里带 user-data-dir=…@deepseek-ai/dsh-desktop
+  assert.equal(agentOfCommandLine('"D:\\DSH\\DeepSeek Harness.exe" --type=renderer --user-data-dir="C:\\Users\\chen\\AppData\\Roaming\\@deepseek-ai/dsh-desktop"'), 'dsh')
   assert.equal(agentOfCommandLine('C:/Program Files/ZCode/ZCode.exe --type=renderer'), 'zcode')
   assert.equal(agentOfCommandLine('node -e "console.log(1)"'), 'unknown')
   assert.equal(agentOfCommandLine('C:/Windows/system32/svchost.exe -k netsvcs'), 'unknown')

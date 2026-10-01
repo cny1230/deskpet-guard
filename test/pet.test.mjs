@@ -129,7 +129,7 @@ test('launchPet：用 PowerShell 的 Start-Process 分离启动（不是 Node �
   // 回归：Node 的 { detached:true } 在 Windows 上以 DETACHED_PROCESS 起 powershell，
   // 控制台连不上就直接退出（实测进程 3 秒内消失、日志空白）→ 必须用 Start-Process。
   assert.match(line, /Start-Process/, '必须用 PowerShell 的 Start-Process 分离')
-  assert.match(line, /deskpet-guard-pet\.ps1/, '没指向桌宠脚本')
+  assert.match(line, /deskpet-guard-pet2?.ps1/, '没指向桌宠脚本')
   assert.ok(line.includes(DATA), '没传数据目录')
   assert.match(line, /-Client','zcode'/, '没把客户端身份传给窗口')
   assert.match(line, /-Slot','\d+'/, '没传摆放序号')
@@ -364,6 +364,22 @@ test('ZCode hook 取最新脚本副本（cache/ 与 marketplaces/ 会有多份�
   const j = JSON.parse(readFileSync(p('deskpet-guard/hooks/hooks.json'), 'utf8'))
   const line = j.hooks.events.SessionStart[0].hooks[0].args.join(' ')
   assert.match(line, /Sort-Object LastWriteTime -Descending/, '必须按时间取最新，不能拿第一个（可能命中旧缓存副本）')
+})
+
+test('pet2（WebView2 一体窗）：脚本存在、带 UTF-8 BOM、含运行时探测与旧版回退链', () => {
+  const f = p('bin/deskpet-guard-pet2.ps1')
+  assert.ok(existsSync(f), 'pet2 脚本应存在')
+  const buf = readFileSync(f)
+  // PS 5.1 读无 BOM 的中文脚本会按 GBK 误读 → 语法错乱（0.4.0 实测踩过）
+  assert.ok(buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf, 'pet2.ps1 必须是带 BOM 的 UTF-8')
+  const src = buf.toString('utf8')
+  assert.match(src, /EdgeUpdate.Clients/, '应有 WebView2 运行时注册表探测')
+  assert.match(src, /deskpet-guard-pet.ps1/, '应有旧版桌宠回退链')
+  assert.match(src, /dpg:minimize/, '应处理最小化消息')
+  assert.match(src, /dpg:window-drag/, '应处理拖动消息')
+  assert.match(src, /vendor\\webview2/, '应从随包 vendor 目录加载互操作程序集')
+  assert.ok(existsSync(p('vendor/webview2/Microsoft.Web.WebView2.WinForms.dll')), 'vendor 互操作程序集应随包存在')
+  assert.ok(existsSync(p('vendor/webview2/WebView2Loader.dll')), '原生加载器应随包存在')
 })
 
 for (const [n, f] of cases) {

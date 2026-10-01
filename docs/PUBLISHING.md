@@ -106,7 +106,7 @@ printf '<initialize + tools/list>\n' | npx -y deskpet-guard
 
 1. **改版本号（两处必须一致，有测试拦）**：`package.json` 的 `version`
    与 `lib/index.js` 的 `export const VERSION`（`test/plugin.test.mjs` 里那条 `VERSION 与 package.json 一致`）；
-2. 跑自检：`npm test`（14 套件 / 206 例）+ `npm run check`（`prepublishOnly` 发布前还会再跑一遍）；
+2. 跑自检：`npm test`（15 套件 / 213 例）+ `npm run check`（`prepublishOnly` 发布前还会再跑一遍）；
 3. 提交推送并等 CI 绿：`git push` → GitHub Actions；
 4. 发布：`npm publish`（`~/.npmrc` 里已有 bypass token；若已 revoke，按上面"步骤 2"重新配一个）；
 5. 发布后验证：`npm view deskpet-guard version`、`npx -y deskpet-guard@<新版本>`；
@@ -125,7 +125,7 @@ printf '<initialize + tools/list>\n' | npx -y deskpet-guard
 
 ## 4. 发布前自检清单
 
-- [ ] `npm test` 全绿（14 套件 / 206 例）+ `npm run check`
+- [ ] `npm test` 全绿（15 套件 / 213 例）+ `npm run check`
 - [ ] CI 绿（GitHub Actions：ubuntu + windows × node 22/24）
 - [ ] `package.json` 版本号 == `lib/index.js` 的 `VERSION`（有测试锁）
 - [ ] `npm pack --dry-run` 的文件列表包含 `cordis.patch.yml`（漏了 → 装上也跑不起来）

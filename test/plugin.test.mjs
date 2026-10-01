@@ -28,6 +28,9 @@ const cases = []
 const test = (n, f) => cases.push([n, f])
 
 const DATA = mkdtempSync(join(tmpdir(), 'deskpet-guard-plugin-'))
+// 双保险：apply() 会经 launchPet 触发 ensureSampler —— 测试里绝不许拉起真实守护
+// （0.4.0 实测血案：没这道闸，plugin.test 跑一次就漏一个孤儿守护到用户桌面）
+process.env.DESKPET_GUARD_NO_SAMPLER = '1'
 process.on('exit', () => {
   try {
     rmSync(DATA, { recursive: true, force: true })

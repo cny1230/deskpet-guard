@@ -12,6 +12,12 @@
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
+// 总闸：任何测试套件（含其子进程）都绝不允许拉起真实采样守护/桌宠。
+// 0.4.0 实测血案：plugin.test 经 apply→launchPet→ensureSampler 漏出孤儿守护，
+// 用户桌面 PowerShell 每 15 秒被 5 个采样者轮番轰炸。
+process.env.DESKPET_GUARD_NO_SAMPLER = '1'
+process.env.DESKPET_GUARD_NO_PET = '1'
+
 const SUITES = [
   'rules',
   'kill',
@@ -27,6 +33,7 @@ const SUITES = [
   'agentid',
   'events',
   'probe',
+  'sampler',
 ]
 
 let cases = 0

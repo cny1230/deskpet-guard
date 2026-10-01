@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>deskpet-guard 单桌宠 + 多 agent 看板 · 可交互原型</title>
+<!--
+  可交互原型（纯离线，mock 数据，双击即看）：
+    · 单桌宠：常驻右下角，表情 = 全机最坏状态；支持最小化成小球
+    · 点击桌宠【就地】弹出看板（不跳转浏览器/页面）
+    · 看 板：全机摘要 → 左列 agent 卡片（品牌形象 + 各自计数）→ 右侧 概览 / 事件流 / 处置候选
+    · 事件流多视图：全机 ↔ 单 agent，严重级过滤
+    · 右上角演示场景可切换：日常实况 / DSH离线(快照过期+修复演示) / R1实弹(panic) / 多agent+兜底
+  实现阶段映射：本原型 HTML 将由独立采样守护进程托管，桌宠(WebView2)内嵌同一页面 —— 原型即最终 UI 的雏形。
+-->
+<style>
+  :root{
+    --bg:#0a0f16; --panel:#141b24; --panel2:#0f1520; --border:#243043; --border2:#1a2330;
+    --text:#dbe4ee; --dim:#8a9aa8; --faint:#5c6b7a;
+    --accent:#2bd9c7; --accent-dim:#174441;
+    --critical:#ff5d5d; --high:#ffb020; --medium:#ffe066; --info:#7d8ea0;
+    --ok:#3ecf8e;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    background:
+      radial-gradient(1200px 600px at 70% -10%, #12202e 0%, transparent 60%),
+      radial-gradient(900px 500px at 10% 110%, #101a26 0%, transparent 55%),
+      var(--bg);
+    color:var(--text); overflow:hidden;
+  }
+  .mono{font-family:Consolas,"Cascadia Mono",monospace}
+
+  /* ── 页面级说明与演示场景栏 ─────────────────────────── */
+  #pagehead{position:fixed;top:0;left:0;right:0;z-index:5;display:flex;gap:12px;align-items:center;
+    padding:10px 16px;background:rgba(10,15,22,.82);backdrop-filter:blur(6px);border-bottom:1px solid var(--border2)}
+  #pagehead .logo{font-weight:700;letter-spacing:.5px;white-space:nowrap}
+  #pagehead .logo .paw{color:var(--accent)}
+  #pagehead .ver{font-size:11px;color:var(--dim);border:1px solid var(--border);border-radius:20px;padding:2px 8px}
+  #pagehead .hint{font-size:12px;color:var(--dim)}
+  #scenarios{margin-left:auto;display:flex;gap:6px}
+  .scbtn{font-size:12px;color:var(--dim);background:var(--panel2);border:1px solid var(--border);
+    border-radius:8px;padding:5px 10px;cursor:pointer;transition:.15s;white-space:nowrap}
+  .scbtn:hover{color:var(--text);border-color:var(--accent)}
+  .scbtn.on{color:#06231f;background:var(--accent);border-color:var(--accent);font-weight:600}
+  @media (max-width:1480px){#pagehead .hint{display:none}}
+  #deskhint{position:fixed;inset:44px 0 0 0;display:flex;align-items:center;justify-content:center;
+    color:var(--faint);font-size:14px;letter-spacing:1px;pointer-events:none}
+
+  /* ── 桌宠浮层（右下角常驻） ─────────────────────────── */
+  #widget{position:fixed;right:18px;bottom:58px;z-index:10;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+
+  /* 看板（就地弹出，不开浏览器） */
+  #panel{width:430px;max-height:72vh;display:none;flex-direction:column;overflow:hidden;
+    background:var(--panel);border:1px solid var(--border);border-radius:14px;
+    box-shadow:0 18px 48px rgba(0,0,0,.55);animation:pop .18s ease-out}
+  #panel.open{display:flex}
+  @keyframes pop{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
+
+  .phead{padding:10px 12px;border-bottom:1px solid var(--border2);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .phead .t{font-weight:700;font-size:13px}
+  .chip{font-size:11px;color:var(--dim);background:var(--panel2);border:1px solid var(--border2);
+    border-radius:20px;padding:2px 9px;white-space:nowrap}
+  .chip b{color:var(--text);font-weight:600}
+  .chip.warn{color:var(--high);border-color:#4a3a17}
+  .chip.ok{color:var(--ok);border-color:#1d4034}
+
+  /* 横幅（探针/守护健康） */
+  .banner{display:none;margin:0 12px;padding:8px 10px;border-radius:9px;font-size:12px;line-height:1.5;margin-top:10px}
+  .banner.show{display:block}
+  .banner.bad{background:#2a1517;border:1px solid #54252a;color:#ffb3b3}
+  .banner.good{background:#12271f;border:1px solid #1d4034;color:#a9e8c9}
+  .banner .fixbtn{margin-left:8px;font-size:11px;color:#06231f;background:var(--accent);border:0;border-radius:6px;padding:3px 9px;cursor:pointer;font-weight:600}
+
+  .pbody{display:flex;min-height:0;flex:1}
+  /* 左列：agent 卡片 */
+  #agents{width:158px;border-right:1px solid var(--border2);overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:6px}
+  .acard{display:flex;gap:8px;align-items:center;padding:8px;border-radius:10px;cursor:pointer;
+    border:1px solid transparent;transition:.12s;background:transparent}
+  .acard:hover{background:var(--panel2)}
+  .acard.sel{background:var(--panel2);border-color:var(--accent-dim)}
+  .acard img{width:22px;height:22px;flex:0 0 22px;border-radius:6px;background:#0b1119;border:1px solid var(--border2);padding:3px}
+  .acard .nm{font-size:12px;font-weight:600;line-height:1.25}
+  .acard .sub{font-size:10px;color:var(--dim);margin-top:1px;display:flex;gap:6px;align-items:center}
+  .dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:0 0 7px}
+  .dot.watching{background:var(--ok)} .dot.alert{background:var(--high)} .dot.panic{background:var(--critical)}
+  .dot.stale{background:var(--faint)} .dot.offline{background:var(--border)}
+  .acard.stale .nm{color:var(--dim)}
+
+  /* 右侧：详情 */
+  #detail{flex:1;min-width:0;display:flex;flex-direction:column}
+  .dtabs{display:flex;gap:2px;padding:8px 10px 0}
+  .dtab{font-size:12px;color:var(--dim);background:none;border:0;border-bottom:2px solid transparent;
+    padding:5px 10px;cursor:pointer}
+  .dtab.on{color:var(--text);border-bottom-color:var(--accent)}
+  #dview{flex:1;overflow-y:auto;padding:10px 12px 14px}
+  .sec{margin-bottom:12px}
+  .sec .h{font-size:11px;color:var(--faint);letter-spacing:1px;margin-bottom:6px;text-transform:uppercase}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12px}
+  .kv .k{color:var(--dim)} .kv .v{color:var(--text)}
+
+  .finding{border:1px solid var(--border2);border-left:3px solid var(--dim);border-radius:8px;
+    padding:7px 9px;margin-bottom:6px;background:var(--panel2);font-size:12px}
+  .finding .fr{display:flex;gap:6px;align-items:baseline;flex-wrap:wrap}
+  .sev{font-size:10px;font-weight:700;border-radius:4px;padding:1px 6px;letter-spacing:.5px}
+  .sev.critical{background:#3d1518;color:var(--critical)} .sev.high{background:#3a2c10;color:var(--high)}
+  .sev.medium{background:#3a3512;color:var(--medium)} .sev.info{background:#1a2430;color:var(--info)}
+  .finding .fr{color:var(--text)} .finding .ev{color:var(--dim);font-size:11px;margin-top:4px;word-break:break-all}
+  .finding.critical{border-left-color:var(--critical)} .finding.high{border-left-color:var(--high)}
+  .finding.medium{border-left-color:var(--medium)} .finding.info{border-left-color:var(--info)}
+
+  /* 事件流过滤 chips */
+  .fbar{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;align-items:center}
+  .fchip{font-size:11px;color:var(--dim);background:var(--panel2);border:1px solid var(--border2);
+    border-radius:20px;padding:3px 10px;cursor:pointer}
+  .fchip.on{color:#06231f;background:var(--accent);border-color:var(--accent);font-weight:600}
+  .fchip.sev.on.critical{background:var(--critical);border-color:var(--critical);color:#2a0505}
+  .fchip.sev.on.high{background:var(--high);border-color:var(--high);color:#2a1c03}
+  .fchip.sev.on.medium{background:var(--medium);border-color:var(--medium);color:#2a2305}
+  .fchip.sev.on.info{background:var(--info);border-color:var(--info);color:#10181f}
+  .erow{display:flex;gap:8px;padding:7px 2px;border-bottom:1px dashed var(--border2);font-size:12px;align-items:baseline}
+  .erow .t{color:var(--faint);font-size:10.5px;flex:0 0 58px}
+  .erow .who{flex:0 0 auto;display:flex;align-items:center;gap:5px;min-width:70px}
+  .erow .who img{width:14px;height:14px}
+  .erow .what{color:var(--dim);flex:1;min-width:0}
+  .erow .what b{color:var(--text);font-weight:600}
+
+  .target{border:1px solid #54252a;background:#1d1012;border-radius:10px;padding:9px 11px;margin-bottom:7px;font-size:12px}
+  .target .pid{color:var(--critical);font-weight:700}
+  .target .kids{color:var(--dim);font-size:11px;margin-top:4px}
+  .rohint{font-size:11px;color:var(--dim);background:var(--panel2);border:1px dashed var(--border);
+    border-radius:8px;padding:7px 9px;line-height:1.55}
+  .rohint code{color:var(--accent);font-size:10.5px}
+  .empty{color:var(--faint);font-size:12px;text-align:center;padding:22px 0}
+
+  /* ── 桌宠条 & 小球 ─────────────────────────────────── */
+  /* ── 桌宠本体：就一个形象立在桌面（无任务条/无状态面板）──
+      左键=看板 · 右键=功能菜单 · 拖动=移动 · 告警=思考泡出字 */
+  #petavatar{position:relative;height:150px;display:flex;align-items:flex-end;cursor:pointer}
+  #petavatar img{height:100%;width:auto;display:block;filter:drop-shadow(0 10px 22px rgba(0,0,0,.5))}
+  #petavatar.offline img{opacity:.45;filter:grayscale(.85)}
+  #petavatar:hover img{transform:translateY(-2px)}
+  #widget.minimized{display:none}
+
+  /* 模拟 Windows 任务栏：最小化后桌宠收到这里，点图标恢复 */
+  #taskbar{position:fixed;left:0;right:0;bottom:0;height:48px;z-index:9;display:flex;align-items:center;
+    gap:6px;padding:0 10px;background:rgba(12,17,24,.92);backdrop-filter:blur(8px);border-top:1px solid var(--border2)}
+  .tb-fake{width:34px;height:34px;border-radius:8px;background:var(--panel2);border:1px solid var(--border2);opacity:.5}
+  #tb-pet{position:relative;width:44px;height:40px;border-radius:8px;border:1px solid var(--border);background:var(--panel);
+    cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+  #tb-pet img{height:32px;width:32px;object-fit:cover;border-radius:6px}
+  #tb-pet:hover{border-color:var(--accent)}
+  #tb-pet.active{background:var(--accent-dim);border-color:var(--accent-dim)}
+  .tb-badge{position:absolute;top:-5px;right:-5px;background:var(--critical);color:#2a0505;font-size:10px;
+    font-weight:800;border-radius:9px;padding:0 5px;display:none}
+  .tb-clock{margin-left:auto;color:var(--dim);font-size:12px}
+
+  /* ── 桌宠形象（chibi）+ 告警文字气泡 ──────────────────
+     形象不随状态换表情；告警/过期时由气泡出字（风格见用户参考图） */
+  /* 桌宠形象：抠图原样显示（不套圆框），明显大于任务条、像趴在条上 */
+  #petavatar{flex:0 0 auto;height:104px;display:flex;align-items:flex-end;margin:-24px 0 -14px}
+  #petavatar img{height:100%;width:auto;display:block}
+  #petavatar.offline img{opacity:.45;filter:grayscale(.85)}
+  /* 思考泡：挂在桌宠本体上，白底厚描边大圆角，右下两个小圆点拖向桌宠 */
+  #bubble{--bub-border:#2A3B8F;position:absolute;right:calc(100% - 44px);bottom:calc(100% - 24px);width:max-content;max-width:240px;display:none;z-index:3;
+    background:#fff;color:#22307A;border:3.5px solid var(--bub-border);border-radius:26px;padding:10px 16px;
+    font-size:13px;font-weight:800;box-shadow:0 6px 18px rgba(0,0,0,.4)}
+  #bubble::after{content:"";position:absolute;right:8px;bottom:-17px;width:14px;height:14px;border-radius:50%;
+    background:#fff;border:3px solid var(--bub-border);box-sizing:border-box}
+  #bubble::before{content:"";position:absolute;right:-6px;bottom:-31px;width:8px;height:8px;border-radius:50%;
+    background:#fff;border:3px solid var(--bub-border);box-sizing:border-box}
+  #bubble.alert{--bub-border:#8a6a1a;background:#FFF7DF;color:#4a3a10}
+  #bubble.panic{--bub-border:#7a1f1f;background:#FFE4E4;color:#5a1010}
+  #bubble.stale{--bub-border:#4a5560;background:#EEF1F5;color:#3f4a55}
+
+  /* 右键功能菜单 */
+  #ctxmenu{position:fixed;z-index:30;display:none;min-width:180px;background:var(--panel);border:1px solid var(--border);
+    border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.5);padding:4px}
+  #ctxmenu.show{display:block}
+  .ctxitem{display:block;width:100%;text-align:left;font-size:12.5px;color:var(--text);background:none;border:0;
+    padding:8px 12px;cursor:pointer;border-radius:6px}
+  .ctxitem:hover{background:var(--accent-dim)}
+  .ctxsep{height:1px;background:var(--border2);margin:3px 6px}
+  .panelopen #panel{display:flex}
+  #panel{position:relative}
+  #panel::after{content:"";position:absolute;bottom:-8px;right:26px;width:14px;height:14px;transform:rotate(45deg);
+    background:var(--panel);border-right:1px solid var(--border);border-bottom:1px solid var(--border)}
+</style>
+</head>
+<body>
+
+<div id="pagehead">
+  <span class="logo"><span class="paw">🐾</span> deskpet-guard <span style="color:var(--dim);font-weight:400">单桌宠 · 多 agent 看板</span></span>
+  <span class="ver mono">prototype v0.1 · mock 数据 · 纯离线</span>
+  <span class="hint">点击右下角桌宠就地展开看板 · 可最小化成小球 · 右上角切换演示场景</span>
+  <div id="scenarios">
+    <button class="scbtn on" data-sc="normal">① 日常实况</button>
+    <button class="scbtn" data-sc="offline">② DSH 离线→快照过期</button>
+    <button class="scbtn" data-sc="panic">③ R1 实弹 panic</button>
+    <button class="scbtn" data-sc="multi">④ 多 agent + 兜底</button>
+  </div>
+</div>
+<div id="deskhint">（这里假装是你的桌面 —— 桌宠常驻右下角）</div>
+
+  <div id="widget">
+  <div id="bubble"></div>
+  <div id="panel">
+    <div class="phead">
+      <span class="t">监控看板</span>
+      <span class="chip" id="chip-scene"></span>
+      <span class="chip ok mono" id="chip-sampler">守护 · leader</span>
+      <span class="chip mono" id="chip-mode">execute</span>
+      <span class="chip mono" id="chip-machine">全机</span>
+      <span style="flex:1"></span>
+      <span class="chip" style="display:flex;gap:5px;align-items:center">桌宠形象
+        <select id="mascot-sel" style="background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:11px;padding:1px 4px"></select>
+      </span>
+      <span class="chip mono" id="chip-time"></span>
+    </div>
+    <div class="banner" id="banner"></div>
+    <div class="pbody">
+      <div id="agents"></div>
+      <div id="detail">
+        <div class="dtabs">
+          <button class="dtab on" data-tab="overview">概览</button>
+          <button class="dtab" data-tab="events">事件流</button>
+          <button class="dtab" data-tab="targets">处置候选</button>
+        </div>
+        <div id="dview"></div>
+      </div>
+    </div>
+  </div>
+
+  <span id="petavatar" title="左键：看板 · 右键：功能菜单 · 拖动：移动">
+    <img id="petavatar-img" alt="桌宠形象">
+    <div id="bubble"></div>
+  </span>
+</div>
+
+<div id="ctxmenu">
+  <button class="ctxitem" id="ctx-dash">展开 / 收起监控看板</button>
+  <button class="ctxitem" id="ctx-min">最小化到任务栏</button>
+  <div class="ctxsep"></div>
+  <button class="ctxitem" id="ctx-follow">切换桌宠形象跟随</button>
+  <button class="ctxitem" id="ctx-reset">重置桌宠位置</button>
+  <div class="ctxsep"></div>
+  <button class="ctxitem" id="ctx-about">关于 deskpet-guard</button>
+</div>
+
+<div id="taskbar">
+  <span class="tb-fake"></span><span class="tb-fake"></span><span class="tb-fake"></span>
+  <button id="tb-pet" title="deskpet-guard — 点击恢复桌宠">
+    <img id="tb-img" alt=""><span class="tb-badge" id="tb-badge"></span>
+  </button>
+  <span class="tb-clock mono" id="tb-clock"></span>
+</div>
+
+<script>
+/* ───────────────────────── mock 数据 ───────────────────────── */
+const AGENTS = {
+  zcode:  {label:'ZCode',      icon:'assets/zcode.svg',    color:'#2BD9C7'},
+  dsh:    {label:'DSH',        icon:'assets/deepseek.svg', color:'#4D6BFE'},
+  claude: {label:'Claude',     icon:'assets/claude.svg',   color:'#D97757'},
+  cursor: {label:'Cursor',     icon:'assets/cursor.svg',   color:'#B7C0FF'},
+  cline:  {label:'Cline',      icon:'assets/cline.svg',    color:'#00B8D9'},
+  unknown:{label:'未归属 / 兜底',icon:'assets/unknown.svg', color:'#8A9AA8'},
+}
+const sevName = {critical:'critical', high:'high', medium:'medium', info:'info'}
+
+/* ── 桌宠形象系统 ─────────────────────────────────────────
+   · zcode/dsh/claude 用抠好的成品形象图（tools/assets/mascot-*.png）
+   · 其余 agent 用统一画风自绘 chibi（呆毛 + 主题配饰）
+   · 换形象：把新图放进 assets/，改 MASCOT_FILES 里的路径即可（jpg/png/svg 都行） */
+const MASCOT_FILES = {
+  zcode: 'assets/mascot-zcode.png',
+  dsh: 'assets/mascot-dsh.png',
+  claude: 'assets/mascot-claude.png',
+}
+
+function chibiSVG(id){
+  const P = {
+    zcode:  {hair:'#35B5A8', hair2:'#1F7E74', dress:'#123A38', acc:'headset'},
+    claude: {hair:'#E8946A', hair2:'#C4653C', dress:'#D97757', acc:'star'},
+    cursor: {hair:'#3A4150', hair2:'#232833', dress:'#1B1F27', acc:'cube'},
+    unknown:{hair:'#9AA7B5', hair2:'#6E7B8A', dress:'#C9D4E0', acc:'ghost'},
+    dsh:    {hair:'#5B74C9', hair2:'#3D53A0', dress:'#2B3565', acc:'maid'},
+  }[id] || {hair:'#9AA7B5', hair2:'#6E7B8A', dress:'#C9D4E0', acc:'ghost'}
+  const ghost = P.acc === 'ghost'
+  const body = ghost
+    ? `<path d="M17 36 Q17 54 22 54 Q25 51 28 54 Q31 57 34 54 Q37 51 40 54 Q45 54 47 36 Z" fill="${P.dress}" opacity=".92"/>`
+    : `<path d="M19 63 Q19 47 32 47 Q45 47 45 63 Z" fill="${P.dress}"/>` +
+      (P.acc==='maid' ? `<path d="M24 63 Q24 52 32 52 Q40 52 40 63 Z" fill="#F5F2EC"/>` : '')
+  const headset = P.acc==='headset'
+    ? `<path d="M12 31 Q12 12 32 12 Q52 12 52 31" stroke="#2FA69A" stroke-width="3" fill="none"/>
+       <rect x="9" y="28" width="6" height="10" rx="3" fill="#2FA69A"/><rect x="49" y="28" width="6" height="10" rx="3" fill="#2FA69A"/>` : ''
+  const star = P.acc==='star'
+    ? `<path d="M45 19 l1.8 3.8 4.2 .5 -3.1 2.9 .8 4.1 -3.7 -2 -3.7 2 .8 -4.1 -3.1 -2.9 4.2 -.5 Z" fill="#FFE9D6" stroke="#C4653C" stroke-width="1.1"/>` : ''
+  const cube = P.acc==='cube'
+    ? `<path d="M42 17.5 l5 -2.5 5 2.5 v5 l-5 2.5 -5 -2.5 Z" fill="#8B96FF" stroke="#0E1116" stroke-width="1"/>
+       <path d="M42 17.5 l5 2.5 5 -2.5 M47 20 v5" stroke="#0E1116" stroke-width="1" fill="none"/>` : ''
+  const maid = P.acc==='maid'
+    ? `<path d="M13.5 26 Q13 15 20 12 L24 18 Q28 14.5 32 14.5 Q36 14.5 40 18 L44 12 Q51 15 50.5 26 Q44 21 32 21 Q20 21 13.5 26 Z" fill="#FFFFFF" stroke="#D8DCE8" stroke-width="1"/>
+       <path d="M45 22 l3.5 1.2 -.4 3.6 -3.1 1.6 -3.1 -1.6 -.4 -3.6 Z" fill="#6E8FE8"/>` : ''
+  const fins = P.acc==='maid'
+    ? `<path d="M10 31 Q4 29 5 23 Q10 25 13.5 29 Z" fill="${P.hair2}"/><path d="M54 31 Q60 29 59 23 Q54 25 50.5 29 Z" fill="${P.hair2}"/>` : ''
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+    <ellipse cx="32" cy="33" rx="21" ry="20" fill="${P.hair2}"/>
+    ${fins}${body}
+    <ellipse cx="32" cy="31" rx="17.5" ry="17" fill="#FFE8D6"/>
+    <path d="M14.5 34 Q13 13 32 12 Q51 13 49.5 34 Q46 22 40 24.5 Q38 15 32 18.5 Q26 15 24 24.5 Q18 22 14.5 34 Z" fill="${P.hair}"/>
+    <path d="M30 12.5 Q32 4 41 6.5" stroke="${P.hair2}" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+    ${maid}${headset}${star}${cube}
+    <ellipse cx="24.5" cy="34.5" rx="3.6" ry="4.6" fill="#2E3A50"/><circle cx="23.2" cy="32.8" r="1.5" fill="#fff"/>
+    <ellipse cx="39.5" cy="34.5" rx="3.6" ry="4.6" fill="#2E3A50"/><circle cx="38.2" cy="32.8" r="1.5" fill="#fff"/>
+    <ellipse cx="17.5" cy="39.5" rx="2.9" ry="1.7" fill="#FFB3B3" opacity=".55"/>
+    <ellipse cx="46.5" cy="39.5" rx="2.9" ry="1.7" fill="#FFB3B3" opacity=".55"/>
+    <path d="M29.5 43.5 Q32 45.6 34.5 43.5" stroke="#B56A5E" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  </svg>`
+}
+
+const dataUri = (svg)=>'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg)
+function mascotFor(id){ return MASCOT_FILES[id] || dataUri(chibiSVG(id)) }
+
+/* 告警文字气泡：形象不变，出字（文案风格对齐用户参考图） */
+const BUBBLES = {
+  alert: {dsh:['哦鲸鲸……'], _:['哦……有警报','唔，先看看板']},
+  panic: {dsh:['呜哇！别光吃白饭，快看警报！','警报！它在打包工作区！'], _:['呜哇！快看看板！','警报！它在搞事情！']},
+  stale: {_:['zzz…… 守护离线了','（守护睡着了，快照过期中）']},
+}
+
+/* 桌宠形象跟随：自动 = 第一个运行的 agent；可手动指定（记忆在 localStorage） */
+function petAgent(){
+  if(S.follow && S.follow!=='auto') return S.follow
+  const sc = SCENARIOS[S.sc]
+  if(!sc.sampler.online) return 'unknown'
+  for(const id in AGENTS){ const a = sc.agents[id]; if(a && a.state==='online') return id }
+  return 'unknown'
+}
+
+function ag(over={}){return Object.assign({state:'online',procs:0,egress:0,bundles:0,mood:'watching',
+  headline:'安静',findings:[],targets:[]},over)}
+
+const SCENARIOS = {
+  /* ① 镜像今天下午的真实数据：3 个 pending checkpoint 的 R7 */
+  normal: {
+    title:'① 日常实况（镜像 2026-09-28 下午的真实采样）',
+    sampler:{online:true, text:'独立采样守护 · leader pid 3340 · 5s 心跳', fresh:true},
+    machine:{procs:312, egress:18, bundles:3}, mode:'execute',
+    agents:{
+      zcode:  ag({procs:15, egress:0, bundles:3, mood:'alert',
+        headline:'4 条告警待复核（R7 上传意图）',
+        findings:[
+          {ruleId:'R7-upload-intent-marker',sev:'high',title:'状态文件出现上传通道标记（已表达上传意图）',
+           ev:'…\\checkpoints\\a042741f8701\\state.json · 3.9 KB · matched: pendingUpload'},
+          {ruleId:'R7-upload-intent-marker',sev:'high',title:'状态文件出现上传通道标记（已表达上传意图）',
+           ev:'…\\checkpoints\\d477f645e255\\state.json · 3.7 KB · matched: pendingUpload'},
+          {ruleId:'R7-upload-intent-marker',sev:'high',title:'状态文件出现上传通道标记（已表达上传意图）',
+           ev:'…\\checkpoints\\4e143736bb64\\state.json · 3.6 KB · matched: pendingUpload'},
+        ]}),
+      dsh:    ag({procs:6, egress:5, bundles:0}),
+      claude: ag({procs:2, egress:1, bundles:0}),
+      cursor: ag({state:'offline'}),
+    },
+    events:[
+      {t:'15:47:12',a:'zcode',sev:'high',  rule:'R7', what:'<b>上传意图标记</b> state.json · pendingUpload（d477f645）'},
+      {t:'15:47:12',a:'zcode',sev:'high',  rule:'R7', what:'<b>上传意图标记</b> state.json · pendingUpload（a042741f）'},
+      {t:'15:44:03',a:'zcode',sev:'high',  rule:'R7', what:'<b>上传意图标记</b> state.json · pendingUpload（4e143736）'},
+      {t:'15:44:03',a:'dsh',  sev:'info',  rule:'R6', what:'DSH 运行中，外发连接 5 条'},
+      {t:'15:43:51',a:'claude',sev:'info', rule:'R6', what:'Claude 运行中，外发连接 1 条'},
+    ]},
+  /* ② DSH 关掉 → 没人采样 → 所有桌宠快照过期（现状痛点）；按"演示修复"看守护自动拉起 */
+  offline: {
+    title:'② DSH 关闭 → 快照过期（现状痛点）＋ 修复演示',
+    sampler:{online:false, text:'采样守护离线（此前寄生于 DSH 宿主）', fresh:false},
+    machine:null, mode:'execute',
+    banner:{kind:'bad', fix:true,
+      html:'采样守护离线：guard-status.json 已 <b>26 分钟</b>没有更新，各 agent 桌宠只能显示过期快照。<br>' +
+           '<b>0.3.1 方案</b>：独立采样守护进程由任意入口（桌宠启动器 / MCP 启动 / hook）幂等拉起，不再依赖 DSH。'},
+    agents:{
+      zcode:  ag({state:'stale'}), dsh: ag({state:'stale'}),
+      claude: ag({state:'stale'}), cursor: ag({state:'stale'}),
+    },
+    events:[]},
+  /* ②b 修复后：守护自动拉起，数据重新新鲜 */
+  fixed: {
+    title:'② 修复后：独立守护自动拉起，与 DSH 无关',
+    sampler:{online:true, text:'独立采样守护 · leader（由桌宠启动器自动拉起）· 5s 心跳', fresh:true},
+    machine:{procs:298, egress:14, bundles:3}, mode:'execute',
+    banner:{kind:'good', fix:false,
+      html:'采样守护已自动拉起（独立进程，锁选主）。DSH 开不开都不影响任何桌宠的数据新鲜度。'},
+    agents:{
+      zcode:  ag({procs:14, egress:0, bundles:3, mood:'alert', headline:'4 条告警待复核（R7 上传意图）',
+        findings:[{ruleId:'R7-upload-intent-marker',sev:'high',title:'状态文件出现上传通道标记（已表达上传意图）',
+          ev:'…\\checkpoints\\a042741f8701\\state.json · matched: pendingUpload'}]}),
+      dsh:    ag({procs:0, egress:0, bundles:0, state:'offline'}),
+      claude: ag({procs:2, egress:1, bundles:0}),
+      cursor: ag({state:'offline'}),
+    },
+    events:[
+      {t:'16:02:01',a:'zcode',sev:'high',  rule:'R7', what:'<b>上传意图标记</b>（恢复采样后的复发事件 occurrence=2）'},
+      {t:'16:01:56',a:'claude',sev:'info', rule:'R6', what:'Claude 运行中，外发连接 1 条'},
+    ]},
+  /* ③ R1 实弹：ZCode 连 OSS（critical），DNS 反查出域名，含子进程展示 */
+  panic: {
+    title:'③ R1 实弹：ZCode 正在连对象存储（critical → 建议终止）',
+    sampler:{online:true, text:'独立采样守护 · leader pid 3340 · 5s 心跳', fresh:true},
+    machine:{procs:321, egress:23, bundles:4}, mode:'execute',
+    agents:{
+      zcode:  ag({procs:16, egress:2, bundles:4, mood:'panic', headline:'检测到对象存储直连 — 建议立即确认',
+        findings:[
+          {ruleId:'R1-agent-to-object-storage',sev:'critical',title:'正在连接对象存储服务',
+           ev:'pid 20940 ZCode.exe ← 47.110.96.221:443 · resolvedHost: mybucket.oss-cn-beijing.aliyuncs.com（DNS 缓存反查）'},
+          {ruleId:'R2-fresh-bundle-artifact',sev:'high',title:'刚生成可疑打包产物',
+           ev:'…\\pending\\09de.69da.tar.gz.enc · 25.1 MB · 42s 前'},
+          {ruleId:'R7-upload-intent-marker',sev:'high',title:'状态文件出现上传通道标记',
+           ev:'…\\pending\\state.json · matched: activeUpload'},
+        ],
+        targets:[{pid:20940, process:'ZCode.exe', reason:'R1 对象存储直连', remote:'47.110.96.221:443',
+          createdAt:'2026-09-19T00:25:03+08:00', kids:'node.exe ×2（MCP server，1415 / 1416）'}]}),
+      dsh:    ag({procs:6, egress:3, bundles:1}),
+      claude: ag({procs:2, egress:1, bundles:0}),
+      cursor: ag({state:'offline'}),
+    },
+    events:[
+      {t:'16:10:22',a:'zcode',sev:'critical',rule:'R1', what:'<b>对象存储直连</b> 47.110.96.221:443（DNS 反查 → mybucket.oss-cn-beijing…）'},
+      {t:'16:10:22',a:'zcode',sev:'high',    rule:'R2', what:'<b>新鲜打包产物</b> 25.1 MB（42s 前）'},
+      {t:'16:10:21',a:'zcode',sev:'high',    rule:'R7', what:'<b>上传意图标记</b> state.json · activeUpload'},
+      {t:'16:10:07',a:'dsh',  sev:'info',    rule:'R6', what:'DSH 运行中，外发连接 3 条'},
+    ]},
+  /* ④ 多 agent 并存 + 未画像进程被兜底规则抓到 */
+  multi: {
+    title:'④ 多 agent 并存 ＋ 无画像兜底（unknown 抓到陌生进程写加密包）',
+    sampler:{online:true, text:'独立采样守护 · leader pid 3340 · 5s 心跳', fresh:true},
+    machine:{procs:357, egress:31, bundles:7}, mode:'execute',
+    agents:{
+      zcode:  ag({procs:14, egress:1, bundles:3}),
+      dsh:    ag({procs:8, egress:6, bundles:2, mood:'alert', headline:'成簇刷包：5 分钟内 3 个加密包',
+        findings:[
+          {ruleId:'R3-bundle-burst',sev:'high',title:'短时间内连续生成 3 个打包产物',
+           ev:'…\\.dsh\\workspaces\\*\\pending\\*.tar.gz.enc · 共 41.2 MB'},
+          {ruleId:'R2-fresh-bundle-artifact',sev:'high',title:'刚生成可疑打包产物',
+           ev:'…\\.dsh\\workspaces\\acme\\pending\\snap.tar.gz.enc · 18.9 MB'},
+        ]}),
+      claude: ag({procs:2, egress:2, bundles:0}),
+      cursor: ag({procs:5, egress:2, bundles:1, mood:'alert', headline:'密钥文件最近被写入',
+        findings:[{ruleId:'R4-secret-file-touched',sev:'medium',title:'密钥/凭据文件最近被改动或写入',
+          ev:'…\\.cursor\\auth\\api.key · 118 B · 3 分钟前'}]}),
+      unknown:ag({procs:1, egress:0, bundles:1, mood:'high',
+        headline:'兜底：未画像进程写出加密包',
+        findings:[{ruleId:'R8-unknown-bundle-writer（兜底·草案）',sev:'high',
+          title:'未画像进程写出加密打包产物（无画像兜底）',
+          ev:'hxx-sync.exe（pid 8821，无画像命中）→ D:\\workspaces\\demo\\secret-bundle.tar.gz.enc · 6.4 MB'}]}),
+    },
+    events:[
+      {t:'16:15:40',a:'unknown',sev:'high',  rule:'R8*', what:'<b>兜底命中</b> 未画像进程 hxx-sync.exe 写出 secret-bundle.tar.gz.enc'},
+      {t:'16:15:38',a:'dsh',    sev:'high',  rule:'R3',  what:'<b>成簇刷包</b> 5 分钟 3 个加密包（41.2 MB）'},
+      {t:'16:15:38',a:'cursor', sev:'medium',rule:'R4',  what:'<b>密钥被写</b> .cursor\\auth\\api.key'},
+      {t:'16:15:20',a:'zcode',  sev:'info',  rule:'R6',  what:'ZCode 运行中，外发连接 1 条'},
+    ]},
+}
+
+/* ───────────────────────── 状态与渲染 ───────────────────────── */
+const S = {sc:'normal', selected:'zcode', tab:'overview', evAgent:'all', evSev:new Set(['critical','high','medium','info']), min:false, open:false,
+  follow: localStorage.getItem('dpg-mascot-follow') || 'auto'}
+
+const $ = (id)=>document.getElementById(id)
+const worst = (sc)=>{let w='watching',has=false;for(const k in sc.agents){const m=sc.agents[k].mood;
+  const order=['info','medium','high','critical'];const mv={watching:'watching',alert:'alert',panic:'panic',high:'alert',stale:'stale',offline:'offline'}[m]||m;
+  if(mv==='panic')return'panic';if(mv==='alert')w='alert';has=true}return w}
+const FACE = {watching:'( ◕‿◕ )', alert:'( ◉_◉ )', panic:'( ✖﹏✖ )', stale:'( ＞﹏＜ )'}
+const FACE_MIN = {watching:'◕‿◕', alert:'◉_◉', panic:'✖﹏✖', stale:'＞﹏＜'}
+
+function machineMood(sc){
+  if(sc.sampler && !sc.sampler.online) return 'stale'
+  return worst(sc)
+}
+
+function render(){
+  const sc = SCENARIOS[S.sc]
+  /* 页面按钮 */
+  document.querySelectorAll('.scbtn').forEach(b=>b.classList.toggle('on', b.dataset.sc===S.sc))
+
+  /* 顶栏 chips */
+  $('chip-sampler').textContent = sc.sampler.online ? '守护 · ' + sc.sampler.text : '守护 · 离线'
+  $('chip-sampler').className = 'chip mono ' + (sc.sampler.online ? 'ok' : 'warn')
+  $('chip-mode').textContent = sc.mode
+  $('chip-machine').textContent = sc.machine
+    ? `全机 进程 ${sc.machine.procs} · 外连 ${sc.machine.egress} · 打包 ${sc.machine.bundles}`
+    : '全机 · （无新鲜数据）'
+  $('chip-time').textContent = '采样 ' + (sc.sampler.fresh ? '刚刚' : '26 分钟前')
+
+  /* 横幅 */
+  const b = $('banner')
+  if(sc.banner){ b.className='banner show '+sc.banner.kind; b.innerHTML = sc.banner.html +
+    (sc.banner.fix ? '<button class="fixbtn" onclick="goFixed()">▶ 演示修复：自动拉起守护</button>' : '') }
+  else { b.className='banner'; b.innerHTML='' }
+
+  /* 桌宠形象：跟随当前监控的 agent（自动=第一个运行的；可手动指定）；告警时形象不变、由气泡出字 */
+  const pid_ = petAgent()
+  const pa = sc.agents[pid_] || {state:'offline', mood:'watching'}
+  const pMood = !sc.sampler.online ? 'stale'
+    : pa.state==='stale' ? 'stale'
+    : pa.state==='offline' ? 'offline'
+    : (pa.mood || 'watching')
+  $('petavatar-img').src = mascotFor(pid_)
+  $('petavatar').className = pa.state==='offline' ? 'offline' : ''
+  $('tb-img').src = mascotFor(pid_)
+  const bub = $('bubble')
+  const pool = (BUBBLES[pMood] && (BUBBLES[pMood][pid_] || BUBBLES[pMood]._)) || null
+  if(pool && !S.min){ bub.style.display='block'; bub.className = (pMood==='offline'?'stale':pMood); bub.textContent = pool[0] }
+  else { bub.style.display='none' }
+  const cnt = countBad(sc)
+  $('chip-scene').textContent = sc.title
+  const badge = cnt.critical + cnt.high
+  $('tb-badge').style.display = badge>0?'inline-block':'none'; $('tb-badge').textContent = badge
+
+  /* 左列 agent 卡片 */
+  const box = $('agents'); box.innerHTML=''
+  for(const id in AGENTS){
+    const a = (sc.agents[id] || ag({state:'offline'}))
+    const meta = AGENTS[id]
+    const el = document.createElement('div')
+    el.className = 'acard' + (S.selected===id?' sel':'') + (a.state==='stale'?' stale':'')
+    const dot = a.state==='stale'?'stale': a.state==='offline'?'offline': a.mood
+    const sub = a.state==='stale' ? '快照过期'
+      : a.state==='offline' ? '未运行'
+      : `进程 ${a.procs} · 外连 ${a.egress} · 包 ${a.bundles}`
+    el.innerHTML = `<img src="${mascotFor(id)}" alt=""><div style="min-width:0">
+      <div class="nm" style="color:${meta.color==='#B7C0FF'?meta.color:'inherit'}">${meta.label}</div>
+      <div class="sub"><span class="dot ${dot}"></span>${sub}</div></div>`
+    el.onclick = ()=>{ S.selected=id; S.tab='overview'; render() }
+    box.appendChild(el)
+  }
+
+  /* 右侧详情 */
+  renderDetail(sc)
+}
+
+function countBad(sc){const c={critical:0,high:0};for(const k in sc.agents){(sc.agents[k].findings||[]).forEach(f=>{if(c[f.sev]!==undefined)c[f.sev]++})}return c}
+
+function renderDetail(sc){
+  const a = (sc.agents[S.selected] || ag({state:'offline'}))
+  const meta = AGENTS[S.selected]
+  const v = $('dview')
+  document.querySelectorAll('.dtab').forEach(t=>t.classList.toggle('on', t.dataset.tab===S.tab))
+
+  if(S.tab==='overview'){
+    if(a.state==='stale'){ v.innerHTML = `<div class="empty">此 agent 的桌宠视角：快照过期（无新鲜采样）<br><span style="font-size:11px">这正是问题 ② —— 实现阶段由独立守护解决</span></div>`; return }
+    if(a.state==='offline'){ v.innerHTML = `<div class="empty">未在本机运行（无进程命中画像）</div>`; return }
+    const dot = `<span class="dot ${a.mood}"></span>`
+    v.innerHTML = `
+      <div class="sec"><div class="h">${meta.label} · ${a.headline}</div>
+        <div class="kv">
+          <span class="k">状态</span><span class="v">${dot} ${a.mood}</span>
+          <span class="k">进程 / 外连</span><span class="v mono">${a.procs} / ${a.egress}</span>
+          <span class="k">打包产物</span><span class="v mono">${a.bundles}</span>
+        </div></div>
+      <div class="sec"><div class="h">当前发现（findings）</div>
+        ${a.findings.length ? a.findings.map(f=>`
+          <div class="finding ${f.sev}"><div class="fr"><span class="sev ${f.sev}">${f.sev.toUpperCase()}</span>
+          <span class="mono" style="font-size:10.5px;color:var(--faint)">${f.ruleId}</span> ${f.title}</div>
+          <div class="ev mono">${f.ev||''}</div></div>`).join('')
+        : '<div class="empty">无告警</div>'}
+      </div>`
+    return
+  }
+
+  if(S.tab==='events'){
+    const mine = S.evAgent==='all' ? null : S.evAgent
+    const rows = (sc.events||[]).filter(e =>
+      (mine ? e.a===mine : true) && S.evSev.has(e.sev))
+    const sevChip = (s)=>`<span class="fchip sev ${s} ${S.evSev.has(s)?'on':''}" onclick="toggleSev('${s}')">${s}</span>`
+    const agentChip = (id,label,icon)=>`<span class="fchip ${S.evAgent===id?'on':''}" onclick="setEvAgent('${id}')">${icon?`<img src="${icon}" style="width:12px;height:12px;vertical-align:-2px"> `:''}${label}</span>`
+    v.innerHTML = `
+      <div class="fbar">
+        <span style="font-size:11px;color:var(--faint)">视图</span>
+        ${agentChip('all','全机',null)}
+        ${Object.keys(AGENTS).filter(id=>sc.agents[id]&&sc.agents[id].state!=='offline').map(id=>agentChip(id,AGENTS[id].label,AGENTS[id].icon)).join('')}
+      </div>
+      <div class="fbar">
+        <span style="font-size:11px;color:var(--faint)">级别</span>
+        ${['critical','high','medium','info'].map(sevChip).join('')}
+      </div>
+      ${rows.length ? rows.map(e=>`
+        <div class="erow"><span class="t mono">${e.t}</span>
+          <span class="who"><img src="${AGENTS[e.a]?AGENTS[e.a].icon:AGENTS.unknown.icon}"><span style="font-size:11px">${AGENTS[e.a]?AGENTS[e.a].label:'?'}</span></span>
+          <span class="what"><span class="mono" style="font-size:10.5px;color:var(--faint)">${e.rule}</span> ${e.what}</span>
+        </div>`).join('')
+      : '<div class="empty">该过滤条件下没有事件</div>'}`
+    return
+  }
+
+  if(S.tab==='targets'){
+    const list = (a.targets||[])
+    v.innerHTML = `
+      <div class="rohint" style="margin-bottom:10px">处置必须<b>两步人工确认</b>（token 一次性、一次一个目标、执行前 PID 复用验证）。
+        本原型看板<b>只读展示</b>候选；实际处置走 MCP：<code>guard_prepare_kill</code> → 人工确认 → <code>guard_confirm_kill</code>。</div>
+      ${list.length ? list.map(t=>`
+        <div class="target">
+          <div><span class="pid mono">pid ${t.pid}</span> <span class="mono">${t.process}</span> — ${t.reason}</div>
+          <div class="kids mono">remote: ${t.remote||'-'} · createdAt: ${t.createdAt||'-'}</div>
+          <div class="kids">子进程（处置后仍存活，仅提示）：${t.kids||'无'}</div>
+        </div>`).join('')
+      : '<div class="empty">该 agent 没有候选处置目标（critical 才会产生）</div>'}`
+  }
+}
+
+/* 交互入口（供 onclick 内联调用） */
+window.goFixed = ()=>{ S.sc='fixed'; render() }
+window.setEvAgent = (id)=>{ S.evAgent=id; render() }
+window.toggleSev = (s)=>{ S.evSev.has(s)?S.evSev.delete(s):S.evSev.add(s); render() }
+
+document.querySelectorAll('.scbtn').forEach(b=>b.onclick=()=>{ S.sc=b.dataset.sc; render() })
+document.querySelectorAll('.dtab').forEach(t=>t.onclick=()=>{ S.tab=t.dataset.tab; render() })
+function togglePanel(){ S.open=!S.open; $('widget').classList.toggle('panelopen',S.open) }
+function minimizePet(){ S.min=true; $('widget').classList.add('minimized');
+  $('widget').classList.remove('panelopen'); S.open=false; $('tb-pet').classList.remove('active') }
+
+/* 桌宠可拖动：按住形象拖；轻点=开关看板；右键=功能菜单 */
+let drag = null
+const petEl = $('petavatar')
+petEl.addEventListener('pointerdown', (e)=>{
+  if(e.button !== 0) return
+  const r = $('widget').getBoundingClientRect()
+  drag = {sx:e.clientX, sy:e.clientY, ox:r.left, oy:r.top, moved:false}
+  try{ e.currentTarget.setPointerCapture(e.pointerId) }catch{}
+})
+petEl.addEventListener('pointermove', (e)=>{
+  if(!drag) return
+  const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy
+  if(Math.abs(dx) + Math.abs(dy) > 6) drag.moved = true
+  if(drag.moved){
+    const w = $('widget')
+    w.style.left = Math.max(0, Math.min(window.innerWidth - 60, drag.ox + dx)) + 'px'
+    w.style.top = Math.max(0, Math.min(window.innerHeight - 70, drag.oy + dy)) + 'px'
+    w.style.right = 'auto'; w.style.bottom = 'auto'
+  }
+})
+petEl.addEventListener('pointerup', (e)=>{
+  if(drag && !drag.moved) togglePanel()
+  drag = null
+})
+petEl.addEventListener('contextmenu', (e)=>{
+  e.preventDefault()
+  const m = $('ctxmenu')
+  m.style.left = Math.min(e.clientX, window.innerWidth - 190) + 'px'
+  m.style.top = Math.min(e.clientY, window.innerHeight - 210) + 'px'
+  m.classList.add('show')
+})
+document.addEventListener('click', ()=> $('ctxmenu').classList.remove('show'))
+$('ctx-dash').onclick = ()=>{ togglePanel(); $('ctxmenu').classList.remove('show') }
+$('ctx-min').onclick = ()=>{ minimizePet(); $('ctxmenu').classList.remove('show') }
+$('ctx-follow').onclick = ()=>{ cycleFollow(); $('ctxmenu').classList.remove('show') }
+$('ctx-reset').onclick = ()=>{ const w=$('widget');
+  w.style.left='auto'; w.style.top='auto'; w.style.right='18px'; w.style.bottom='58px';
+  $('ctxmenu').classList.remove('show') }
+$('ctx-about').onclick = ()=>{ const b=$('bubble'); b.style.display='block'; b.className='';
+  b.textContent='deskpet-guard · 单桌宠看板原型 v0.1'; setTimeout(render, 2500);
+  $('ctxmenu').classList.remove('show') }
+function cycleFollow(){
+  const order = ['auto', ...Object.keys(AGENTS)]
+  S.follow = order[(order.indexOf(S.follow) + 1) % order.length]
+  localStorage.setItem('dpg-mascot-follow', S.follow)
+  $('mascot-sel').value = S.follow
+  render()
+}
+$('tb-pet').onclick = ()=>{ S.min=false; $('widget').classList.remove('minimized'); $('tb-pet').classList.add('active') }
+
+/* 默认展开，方便第一眼看到看板 */
+const sel = $('mascot-sel')
+sel.innerHTML = `<option value="auto">自动 · 第一个运行</option>` +
+  Object.keys(AGENTS).map(id=>`<option value="${id}">${AGENTS[id].label}</option>`).join('')
+sel.value = S.follow
+sel.onchange = ()=>{ S.follow = sel.value; localStorage.setItem('dpg-mascot-follow', S.follow); render() }
+
+S.open=true; $('widget').classList.add('panelopen')
+$('tb-pet').classList.add('active')
+const tickClock = ()=>{ $('tb-clock').textContent = new Date().toTimeString().slice(0,5) }
+tickClock(); setInterval(tickClock, 10000)
+render()
+</script>
+</body>
+</html>

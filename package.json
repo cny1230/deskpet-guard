@@ -1,6 +1,6 @@
 {
   "name": "deskpet-guard",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Agent 行为守护桌宠：跨 agent 监控可疑外传（加密打包直传对象存储 / DNS 外泄线索 / 敏感密钥被读），发现即告警，明确确认后按「一次一个」终止目标 agent；事件写入只追加 guard-events.jsonl，并通过 DSH host 工具 + MCP(stdio) 供其它 agent 查询",
   "type": "module",
   "main": "./lib/index.js",
@@ -8,11 +8,14 @@
   "bin": {
     "deskpet-guard": "./bin/deskpet-guard-mcp.js",
     "deskpet-guard-mcp": "./bin/deskpet-guard-mcp.js",
-    "deskpet-guard-pet": "./bin/deskpet-guard-pet.js"
+    "deskpet-guard-pet": "./bin/deskpet-guard-pet.js",
+    "deskpet-guard-sampler": "./bin/deskpet-guard-sampler.js"
   },
   "files": [
     "lib",
     "bin",
+    "assets",
+    "vendor",
     "docs",
     "cordis.patch.yml",
     "README.md",
@@ -77,7 +80,7 @@
   "scripts": {
     "build": "bash scripts/build.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "check": "node --check lib/index.js && node --check lib/api.js && node --check lib/mcp.js && node --check lib/client.js && node --check lib/probe.js && node --check lib/events.js && node --check lib/rules.js && node --check lib/agentid.js && node --check bin/deskpet-guard-mcp.js",
+    "check": "node --check lib/index.js && node --check lib/api.js && node --check lib/mcp.js && node --check lib/client.js && node --check lib/probe.js && node --check lib/events.js && node --check lib/rules.js && node --check lib/agentid.js && node --check lib/sampler.js && node --check lib/dashboard.js && node --check bin/deskpet-guard-mcp.js && node --check bin/deskpet-guard-sampler.js",
     "test": "node test/all.mjs",
     "prepublishOnly": "node test/all.mjs && npm run check",
     "test:suites": "node test/all.mjs",
