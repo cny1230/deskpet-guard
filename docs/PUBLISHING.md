@@ -12,7 +12,7 @@
 | GitHub topics（9 个，含 `dsh-plugin`） | ✅ 已打 | `GET /repos/cny1230/deskpet-guard` 回读可见 |
 | GitHub 搜索索引 | ✅ 已索引 | `search/repositories?q=repo:cny1230/deskpet-guard` 命中 1 条，带全部 topics |
 | dsh.so 收录 | ✅ **已提交**（2026-09-18） | 用 dsh.so 自己的提交页跑完 checker 后点 `Submit to dsh.so`，`POST /api/submit` → **HTTP 200**、页面 `✓ Submitted`；该站明说"files the registry entry and scan report as an issue in the dsh.so backend via the site API — no GitHub account required"。`/artifact/deskpet-guard/` 仍 404 = 站点静态重建尚未跑 |
-| npm 包 | ✅ **已发布（最新 0.3.0，2026-09-28）** | [`deskpet-guard`](https://www.npmjs.com/package/deskpet-guard)（BSD-3-Clause / maintainer `cny1230`）；实测官方源直装 0.3.0 → `initialize` 报 v0.3.0 + `tools/list` 5 工具。注意：`~/.npmrc` 默认指向 npmmirror，镜像同步有延迟，验证一律带 `--registry=https://registry.npmjs.org/` |
+| npm 包 | ✅ **已发布（最新 0.4.0，2026-10-01）** | [`deskpet-guard`](https://www.npmjs.com/package/deskpet-guard)（BSD-3-Clause / maintainer `cny1230`）；实测官方源直装 0.4.0 → `initialize` 报 v0.4.0 + `tools/list` 5 工具，包体积 3.7MB（新增 vendor WebView2 程序集与形象图/看板页）。注意：`~/.npmrc` 默认指向 npmmirror，镜像同步有延迟，验证一律带 `--registry=https://registry.npmjs.org/` |
 | MCP 官方 registry | ⏳ 未发布 | 需要已发布的包 + 按其 schema 生成 `server.json` |
 
 ### dsh.so checker 对我们的实测结论（2026-09-18，提交时同批上报）
