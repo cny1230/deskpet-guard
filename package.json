@@ -80,7 +80,7 @@
   "scripts": {
     "build": "bash scripts/build.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "check": "node --check lib/index.js && node --check lib/api.js && node --check lib/mcp.js && node --check lib/client.js && node --check lib/probe.js && node --check lib/events.js && node --check lib/rules.js && node --check lib/agentid.js && node --check lib/sampler.js && node --check lib/dashboard.js && node --check bin/deskpet-guard-mcp.js && node --check bin/deskpet-guard-sampler.js",
+    "check": "node --check lib/index.js && node --check lib/api.js && node --check lib/mcp.js && node --check lib/client.js && node --check lib/probe.js && node --check lib/events.js && node --check lib/rules.js && node --check lib/agentid.js && node --check lib/sampler.js && node --check bin/deskpet-guard-mcp.js && node --check bin/deskpet-guard-sampler.js",
     "test": "node test/all.mjs",
     "prepublishOnly": "node test/all.mjs && npm run check",
     "test:suites": "node test/all.mjs",
