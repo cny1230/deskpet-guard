@@ -22,6 +22,9 @@
   .chip b{color:var(--text);font-weight:600}
   .chip.warn{color:var(--high);border-color:#4a3a17}
   .chip.ok{color:var(--ok);border-color:#1d4034}
+  .pclose{font-size:14px;line-height:1;color:var(--dim);background:var(--panel2);border:1px solid var(--border2);
+    border-radius:6px;width:22px;height:22px;padding:0;cursor:pointer;flex:0 0 22px}
+  .pclose:hover{color:var(--text);background:#202b3a;border-color:var(--border)}
   .banner{display:none;margin:0 12px;padding:8px 10px;border-radius:9px;font-size:12px;line-height:1.5;margin-top:10px}
   .banner.show{display:block}
   .banner.bad{background:#2a1517;border:1px solid #54252a;color:#ffb3b3}
@@ -88,7 +91,7 @@
   #bubble.alert{--bub-border:#8a6a1a;background:#FFF7DF;color:#4a3a10}
   #bubble.panic{--bub-border:#7a1f1f;background:#FFE4E4;color:#5a1010}
   #bubble.stale{--bub-border:#4a5560;background:#EEF1F5;color:#3f4a55}
-  #ctxmenu{position:fixed;z-index:30;display:none;min-width:180px;background:var(--panel);border:1px solid var(--border);
+  #ctxmenu{position:fixed;right:10px;bottom:10px;z-index:30;display:none;min-width:180px;background:var(--panel);border:1px solid var(--border);
     border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.5);padding:4px}
   #ctxmenu.show{display:block}
   .ctxitem{display:block;width:100%;text-align:left;font-size:12.5px;color:var(--text);background:none;border:0;
@@ -110,6 +113,7 @@
         <select id="mascot-sel" style="background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:11px;padding:1px 4px"></select>
       </span>
       <span class="chip mono" id="chip-time"></span>
+      <button class="pclose" id="panel-close" title="关闭监控看板">×</button>
     </div>
     <div class="banner" id="banner"></div>
     <div class="pbody">
@@ -124,19 +128,21 @@
       </div>
     </div>
   </div>
-  <span id="petavatar" title="左键：看板 · 右键：功能菜单 · 拖动：移动">
+  <span id="petavatar" title="右键：功能菜单 · 按住拖动：移动">
     <img id="petavatar-img" alt="桌宠形象">
     <div id="bubble"></div>
   </span>
 </div>
 <div id="ctxmenu">
-  <button class="ctxitem" id="ctx-dash">展开 / 收起监控看板</button>
+  <button class="ctxitem" id="ctx-dash">打开 / 关闭监控看板</button>
   <button class="ctxitem" id="ctx-min">最小化到任务栏</button>
   <div class="ctxsep"></div>
   <button class="ctxitem" id="ctx-follow">切换桌宠形象跟随</button>
   <button class="ctxitem" id="ctx-reset">重置桌宠位置</button>
   <div class="ctxsep"></div>
   <button class="ctxitem" id="ctx-about">关于 deskpet-guard</button>
+  <div class="ctxsep"></div>
+  <button class="ctxitem" id="ctx-quit">退出桌宠</button>
 </div>
 <script>
 (function(){
@@ -147,9 +153,11 @@ var AGENTS={
   zcode:{label:'ZCode',mascot:'assets/mascot-zcode.png'},
   dsh:{label:'DSH',mascot:'assets/mascot-dsh.png'},
   claude:{label:'Claude',mascot:'assets/mascot-claude.png'},
+  codex:{label:'Codex / ChatGPT',mascot:'assets/mascot-codex.png'},
+  gemini:{label:'Gemini',mascot:'assets/mascot-gemini.png'},
   cursor:{label:'Cursor'},cline:{label:'Cline'},unknown:{label:'未归属 / 兜底'}
 }
-var ORDER=['zcode','dsh','claude','cursor','cline','unknown']
+var ORDER=['zcode','dsh','claude','codex','gemini','cursor','cline','unknown']
 var PROFILE_AGENT=[['zcode','zcode'],['dsh','dsh'],['cursor','cursor'],['claude','claude'],['cline','cline']]
 function agentOfProfileId(p){
   p=String(p||'');if(!p||p==='*')return'unknown'
@@ -159,6 +167,8 @@ function agentOfProfileId(p){
 var CHIBI={
   cursor:{hair:'#3A4150',hair2:'#232833',dress:'#1B1F27',acc:'cube'},
   cline:{hair:'#00B8D9',hair2:'#00808F',dress:'#0E3A44',acc:' visor'},
+  codex:{hair:'#0E8A6D',hair2:'#0A6350',dress:'#0F352C',acc:''},
+  gemini:{hair:'#4285F4',hair2:'#2F6BD8',dress:'#1A2E55',acc:''},
   unknown:{hair:'#9AA7B5',hair2:'#6E7B8A',dress:'#C9D4E0',acc:'ghost'}
 }
 function chibiSVG(id){
@@ -180,7 +190,21 @@ function chibiSVG(id){
   '</svg>'
 }
 function dataUri(s){return 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(s)}
-function mascotFor(id){return AGENTS[id]&&AGENTS[id].mascot?AGENTS[id].mascot:dataUri(chibiSVG(id))}
+function chibiOf(id){return dataUri(chibiSVG(id))}
+// 形象图还没放（mascot-codex.png 等）时自动退回主题色 chibi 小人，不留破图图标。
+// 404 一次就把该图记入 BAD_MASCOT，后续直接用 chibi，不再反复请求。
+var BAD_MASCOT={}
+function mascotFor(id){
+  var m=AGENTS[id]&&AGENTS[id].mascot
+  return (m&&!BAD_MASCOT[m])?m:chibiOf(id)
+}
+document.addEventListener('error',function(e){
+  var t=e.target
+  if(t&&t.tagName==='IMG'&&/\/assets\/mascot-/.test(t.src)){
+    BAD_MASCOT[t.src.slice(t.src.indexOf('assets/mascot-')).split('?')[0]]=1
+    if(t.dataset&&t.dataset.chibi)t.src=t.dataset.chibi
+  }
+},true)
 
 var BUBBLES={
   alert:{dsh:['哦鲸鲸……'],_:['哦……有警报','唔，先看看板']},
@@ -204,7 +228,22 @@ function petAgent(){
   if(S.follow&&S.follow!=='auto')return S.follow
   var j=S.status,s=j&&j.status,per=s&&s.perAgent
   if(!per)return'unknown'
-  for(var i=0;i<ORDER.length;i++){var b=per[ORDER[i]];if(b&&(b.procs>0||b.alerts>0))return ORDER[i]}
+  // 全机单只桌宠：自动模式在**有形象且还在跑**的 agent（ORDER，procs>0）里选最早启动的
+  //（firstStartMs 由采样守护按进程创建时间算好）。两个限制各有来由：
+  //   · 限 ORDER：codex/gemini 这类没形象的 agent 抢到"最早"就只能显示兜底小人（实测被骂）；
+  //   · 限 procs>0：已退出的 agent 靠残留告警也算"在跑"的话，桌宠会跟着一个死进程走。
+  var best=null,bestMs=Infinity
+  for(var i=0;i<ORDER.length;i++){
+    var id=ORDER[i]
+    if(id==='unknown')continue
+    var b=per[id]
+    if(!b||!(b.procs>0))continue
+    var ms=Number(b.firstStartMs)||0
+    if(ms>0&&ms<bestMs){best=id;bestMs=ms}
+  }
+  if(best)return best
+  // 旧快照没有 firstStartMs → 退回固定优先级（zcode 在前）
+  for(var k=0;k<ORDER.length;k++){var b2=per[ORDER[k]];if(b2&&(b2.procs>0||b2.alerts>0))return ORDER[k]}
   return'unknown'
 }
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
@@ -230,7 +269,9 @@ function render(){
   var pb=(s&&s.perAgent&&s.perAgent[pid])||null
   var pMood=stale?'stale':(!pb||(pb.procs===0&&!pb.alerts))?'watching':bucketMood(pb)
   var av=$('petavatar')
-  $('petavatar-img').src=mascotFor(pid)
+  var pimg=$('petavatar-img')
+  pimg.dataset.chibi=chibiOf(pid)
+  pimg.src=mascotFor(pid)
   av.className=pa_(pb,stale)
   var bub=$('bubble')
   var pool=(BUBBLES[pMood]&&(BUBBLES[pMood][pid]||BUBBLES[pMood]._))||null
@@ -251,12 +292,15 @@ function renderAgents(per,stale){
   var box=$('agents');box.innerHTML=''
   for(var i=0;i<ORDER.length;i++){
     var id=ORDER[i],b=per[id]||null,meta=AGENTS[id]
-    var st=stale?'stale':(b&&(b.procs>0||b.alerts>0))?(bucketMood(b)):(b?'offline':'offline')
+    // 口径：进程 0 = 未运行。残留的外连/历史告警不再把卡片撑成"活着"的样子
+    //（真实反馈：ZCode 退出后卡片还挂着"进程 0 · 外连 N"，和 Claude 的"未运行"不一致）
+    var running=!!(b&&b.procs>0)
+    var st=stale?'stale':running?bucketMood(b):'offline'
     var el=document.createElement('div')
     el.className='acard'+(S.selected===id?' sel':'')+(st==='stale'?' stale':'')
-    var sub=stale?'快照过期':(b&&(b.procs>0||b.alerts>0))?('进程 '+(b.procs||0)+' · 外连 '+(b.egress||0)+' · 包 '+(b.bundles||0)):'未运行'
+    var sub=stale?'快照过期':running?('进程 '+(b.procs||0)+' · 外连 '+(b.egress||0)+' · 包 '+(b.bundles||0)):'未运行'
     var dot=st==='offline'?'offline':st
-    el.innerHTML='<img src="'+mascotFor(id)+'" alt=""><div style="min-width:0">'+
+    el.innerHTML='<img src="'+mascotFor(id)+'" data-chibi="'+chibiOf(id)+'" alt=""><div style="min-width:0">'+
       '<div class="nm">'+esc(meta.label)+'</div>'+
       '<div class="sub"><span class="dot '+dot+'"></span>'+esc(sub)+'</div></div>'
     el.onclick=(function(id2){return function(){S.selected=id2;S.tab='overview';render()}})(id)
@@ -272,13 +316,14 @@ function renderDetail(per,s){
   var id=S.selected||'unknown',meta=AGENTS[id]||{label:id},b=per[id]||null
   if(S.tab==='overview'){
     if(!b){v.innerHTML='<div class="empty">本机没有该 agent 的活动数据</div>';return}
+    var head=esc(meta.label)+(b.procs>0?'':' <span class="chip warn" style="text-transform:none;letter-spacing:0">未运行 · 以下是退出前的残留</span>')
     var fs=(b.findings||[]).map(function(f){
       return '<div class="finding '+(f.severity||'info')+'"><div class="fr"><span class="sev '+
         esc(f.severity||'info')+'">'+esc(String(f.severity||'info').toUpperCase())+'</span>'+
         '<span class="mono" style="font-size:10.5px;color:var(--faint)">'+esc(f.ruleId)+'</span> '+
         esc(f.title||'')+'</div></div>'
     }).join('')
-    v.innerHTML='<div class="sec"><div class="h">'+esc(meta.label)+'</div><div class="kv">'+
+    v.innerHTML='<div class="sec"><div class="h">'+head+'</div><div class="kv">'+
       '<span class="k">进程 / 外连</span><span class="v mono">'+(b.procs||0)+' / '+(b.egress||0)+'</span>'+
       '<span class="k">打包产物</span><span class="v mono">'+(b.bundles||0)+'</span>'+
       '<span class="k">候选处置</span><span class="v mono">'+(b.targets||0)+'</span></div></div>'+
@@ -328,17 +373,27 @@ function poll(){
 }
 poll();setInterval(poll,3000)
 
-function togglePanel(){
-  S.open=!S.open;$('widget').classList.toggle('panelopen',S.open)
+function setPanel(open){
+  S.open=!!open;$('widget').classList.toggle('panelopen',S.open)
   // 通知宿主窗口改尺寸（WebView2）：收起=只有形象，展开=形象+看板
   hostPost({type:'dpg:panel-size',w:S.open?470:300,h:S.open?790:240})
 }
+function togglePanel(){setPanel(!S.open)}
 function minimizePet(){hostPost({type:'dpg:minimize'})}
 var drag=null
 var pet=$('petavatar')
+var HAS_HOST=!!(window.chrome&&window.chrome.webview)
 pet.addEventListener('pointerdown',function(e){
   if(e.button!==0)return
-  drag={sx:e.clientX,sy:e.clientY,lastX:e.clientX,lastY:e.clientY,ssx:e.screenX,ssy:e.screenY,lastSX:e.screenX,lastSY:e.screenY,moved:false}
+  if(HAS_HOST){
+    // WebView2 宿主：按住即请宿主进系统级拖动循环（长按拖动、松手即停）。
+    // 不再用页面增量上报——宿主窗口一动 WebView 的输入捕获就断，
+    // 实测退化成"点一下松开、之后鼠标移动窗口才跟手"。
+    hostPost({type:'dpg:native-drag'})
+    return
+  }
+  // 没有宿主窗口（普通浏览器里预览看板页）→ 退化为页面内拖动，同为按住拖动
+  drag={sx:e.clientX,sy:e.clientY,moved:false}
   try{pet.setPointerCapture(e.pointerId)}catch(err){}
 })
 pet.addEventListener('pointermove',function(e){
@@ -346,54 +401,75 @@ pet.addEventListener('pointermove',function(e){
   var dx=e.clientX-drag.sx,dy=e.clientY-drag.sy
   if(Math.abs(dx)+Math.abs(dy)>6)drag.moved=true
   if(drag.moved){
-    if(window.chrome&&window.chrome.webview){
-      // WebView2 宿主：按增量移动真实窗口（每次上报相对上一次的位移）
-      hostPost({type:'dpg:window-drag',dx:e.screenX-drag.lastSX,dy:e.screenY-drag.lastSY})
-    }else{
-      var w=$('widget')
-      if(w._ox==null){var r=w.getBoundingClientRect();w._ox=r.left;w._oy=r.top}
-      w.style.left=(w._ox+dx)+'px';w.style.top=(w._oy+dy)+'px';w.style.right='auto';w.style.bottom='auto'
-    }
+    var w=$('widget')
+    if(w._ox==null){var r=w.getBoundingClientRect();w._ox=r.left;w._oy=r.top}
+    w.style.left=(w._ox+dx)+'px';w.style.top=(w._oy+dy)+'px';w.style.right='auto';w.style.bottom='auto'
   }
-  drag.lastX=e.clientX;drag.lastY=e.clientY;drag.lastSX=e.screenX;drag.lastSY=e.screenY
 })
-pet.addEventListener('pointerup',function(e){
-  if(drag&&!drag.moved)togglePanel()
-  drag=null
-})
+pet.addEventListener('pointerup',function(){drag=null})
+pet.addEventListener('pointercancel',function(){drag=null})
 pet.addEventListener('contextmenu',function(e){
   e.preventDefault()
+  // 菜单贴在桌宠**旁边**（按头像实际宽度让位），不盖住桌宠；窗口同时撑到"菜单+头像"
+  // 都放得下（宿主锚定右下角扩展）。上一版把菜单锚在右下角 = 正好压在桌宠身上，实测被骂。
   var m=$('ctxmenu')
-  m.style.left=Math.min(e.clientX,window.innerWidth-190)+'px'
-  m.style.top=Math.min(e.clientY,window.innerHeight-220)+'px'
   m.classList.add('show')
+  var img=$('petavatar-img')
+  var aw=(img&&img.naturalWidth&&img.naturalHeight)?(img.naturalWidth/img.naturalHeight)*150:140
+  m.style.left='auto';m.style.top='auto'
+  m.style.right=(Math.round(aw)+24)+'px'
+  m.style.bottom='12px'
+  if(!S.open){
+    var w=Math.max(300,Math.ceil(aw)+m.offsetWidth+52)
+    var h=Math.max(340,m.offsetHeight+46)
+    hostPost({type:'dpg:panel-size',w:w,h:h})
+  }
 })
-document.addEventListener('click',function(){$('ctxmenu').classList.remove('show')})
-$('ctx-dash').onclick=function(){togglePanel();$('ctxmenu').classList.remove('show')}
-$('ctx-min').onclick=function(){minimizePet();$('ctxmenu').classList.remove('show')}
+function closeCtxMenu(){
+  var m=$('ctxmenu')
+  if(!m.classList.contains('show'))return
+  m.classList.remove('show')
+  if(!S.open)hostPost({type:'dpg:panel-size',w:300,h:240})
+}
+document.addEventListener('click',closeCtxMenu)
+// 菜单开着时，点窗口内任何非菜单区域（含桌宠本身）都先关菜单；窗口外的点击进不来，
+// 靠失焦兜底（点桌面/别的应用 = WebView 失焦）；Esc 也给一条路。
+document.addEventListener('pointerdown',function(e){
+  var m=$('ctxmenu')
+  if(m.classList.contains('show')&&!m.contains(e.target))closeCtxMenu()
+},true)
+window.addEventListener('blur',closeCtxMenu)
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeCtxMenu()})
+$('ctx-dash').onclick=function(){togglePanel();closeCtxMenu()}
+$('ctx-min').onclick=function(){minimizePet();closeCtxMenu()}
 $('ctx-follow').onclick=function(){
   var order=['auto'].concat(ORDER)
   S.follow=order[(order.indexOf(S.follow)+1)%order.length]
   try{localStorage.setItem('dpg-follow',S.follow)}catch(e){}
   var sel=$('mascot-sel');if(sel)sel.value=S.follow
-  render();$('ctxmenu').classList.remove('show')
+  render();closeCtxMenu()
 }
 $('ctx-reset').onclick=function(){
   var w=$('widget');w.style.left='auto';w.style.top='auto';w.style.right='14px';w.style.bottom='10px';w._ox=null
   hostPost({type:'dpg:reset-pos'})
-  $('ctxmenu').classList.remove('show')
+  closeCtxMenu()
 }
 $('ctx-about').onclick=function(){
   var b=$('bubble');b.style.display='block';b.className='';b.textContent='deskpet-guard 看板 v'+VERSION
-  setTimeout(render,2500);$('ctxmenu').classList.remove('show')
+  setTimeout(render,2500);closeCtxMenu()
+}
+$('ctx-quit').onclick=function(){
+  // 全机单只后桌宠不再随客户端退出而关，这里给用户留的手动退出口
+  hostPost({type:'dpg:quit'});closeCtxMenu()
 }
 var sel=$('mascot-sel')
-sel.innerHTML='<option value="auto">自动 · 第一个运行</option>'+
+sel.innerHTML='<option value="auto">自动 · 最早启动</option>'+
   ORDER.map(function(id){return '<option value="'+id+'">'+esc(AGENTS[id].label)+'</option>'}).join('')
 sel.value=S.follow
 sel.onchange=function(){S.follow=sel.value;try{localStorage.setItem('dpg-follow',S.follow)}catch(e){};render()}
 var dtabs=document.querySelectorAll('.dtab')
 for(var i=0;i<dtabs.length;i++)dtabs[i].onclick=function(){S.tab=this.dataset.tab;render()}
+$('panel-close').onclick=function(){setPanel(false)}
 })()
 </script>
 </body>

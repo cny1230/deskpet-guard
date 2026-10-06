@@ -237,7 +237,7 @@ lib/agentid.js    agent 归属层（进程名/路径/cmdline/画像 → 哪个 a
 lib/pet.js        桌宠窗口（PowerShell + WinForms，跨 agent 各一只）
 lib/sampler.js    独立采样守护（0.4.0）：锁选主 + 自托管 HTTP API + endpoint.json，
                   DSH 不在时它就是唯一采样者（解决"DSH 关了快照过期"）
-lib/dashboard.js  桌宠看板页面（0.4.0）：接真实 API 的正式 UI，守护托管、桌宠窗口同载
+assets/dashboard.html 桌宠看板页面（0.4.0）：接真实 API 的正式 UI，守护托管、桌宠窗口同载
 assets/           桌宠形象图（mascot-*.png，随包发布；换图 = 同名覆盖）
 bin/…-mcp.js      MCP 可执行入口
 bin/…-sampler.js  独立采样守护入口（--stop / --status）
@@ -273,17 +273,22 @@ test/*.mjs        15 个离线套件；test/dom-shim.mjs 是跑面板用的极�
 
 ## 桌宠：怎么开、怎么关
 
-桌宠是**独立桌面窗口**（Windows / PowerShell + WinForms，零依赖），每个客户端各一只。
+桌宠是**独立桌面窗口**（Windows / PowerShell + WinForms，零依赖），**全机只有一只**
+（0.4.1 起：不管开着几个客户端，后到的拉起请求都会让位；在跑的还是旧版文本宠时，
+新的拉起会把它升级成带看板页的 pet2）。
 它不在客户端 UI 里渲染——因为 ZCode / Claude Code 这类 agent 的插件 API 只提供
 skills / commands / agents / hooks / MCP，**没有"往界面插悬浮组件"的能力**。
+
+**形象跟谁**：看板页的"自动"模式跟随**最早启动且还在跑**的 agent（按进程创建时间判断），
+它退出后自动落到下一个还在跑的 agent；也可以在形象下拉框里钉死某个 agent。
 
 **自动拉起**：
 
 | 场景 | 机制 |
 |---|---|
-| DSH | 宿主插件在第一次 tick 时拉起，看护对象 = 宿主自己 → 宿主退出它自己关 |
+| DSH | 宿主插件在第一次 tick 时拉起 |
 | ZCode | 插件 `hooks/hooks.json` 的 `SessionStart`（刷新市场后生效） |
-| 任何 MCP 客户端 | 它的 MCP server 启动时顺带拉起（`.mcp.json` → `npx deskpet-guard`） |
+| 任何 MCP 客户端 | 它的 MCP server 启动时顺带拉起（幂等：已有一只就跳过） |
 
 **0.4.0 起还有一层保障**：桌宠/MCP 启动时都会幂等拉起**独立采样守护**
 （`node bin/deskpet-guard-sampler.js`，锁选主与 DSH 宿主协调，同一时刻只有一家采样）。
@@ -293,15 +298,15 @@ DSH 关掉后守护自动接管采样并托管本地看板 —— 各 agent 的�
 **手动开/关**（随时可用，不必等客户端）：
 
 ```bash
-node bin/deskpet-guard-pet.js --client dsh      # 开：DSH 桌宠（自动看护 DSH 宿主）
-node bin/deskpet-guard-pet.js --client zcode    # 开：ZCode 桌宠（按进程名看护 ZCode）
+node bin/deskpet-guard-pet.js                   # 开：桌宠（全机一只；已开着就跳过）
+node bin/deskpet-guard-pet.js --client zcode    # 同上（--client 只用作日志/来源记录）
 node bin/deskpet-guard-pet.js --status          # 只看文字状态，不开窗
-node bin/deskpet-guard-pet.js --list            # 现在有哪几只、看护谁
-node bin/deskpet-guard-pet.js --stop all        # 一次全关（含没有锁文件的孤儿）
+node bin/deskpet-guard-pet.js --list            # 桌宠在不在、来源（全局锁/进程发现）
+node bin/deskpet-guard-pet.js --stop            # 关掉桌宠（也清历史遗留的 per-client 锁）
 ```
 
-Windows 上也可以**双击仓库根目录的 `start-pet.cmd`**（默认起 DSH 桌宠，可带参数，如
-`start-pet.cmd --client zcode`）。
+也可以**右键桌宠 → "退出桌宠"**直接关掉。Windows 上可以**双击仓库根目录的
+`start-pet.cmd`**（可带参数，如 `start-pet.cmd --client zcode`）。
 
 **手动关掉之后**：不会自己弹回来（关闭是你的明确意图，宿主不会跟你抢）。
 想再开就上面任意一条命令 / 双击 `start-pet.cmd`；ZCode 侧重启 ZCode 也会重新拉起。

@@ -7,7 +7,8 @@
 #   powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File bin/deskpet-guard-pet.ps1 -DataDir <数据目录>
 #   powershell.exe ... -File bin/deskpet-guard-pet.ps1 -Probe        # 不开窗口，打印文本状态
 #
-# 只读：只读 guard-status.json / guard-events.jsonl；唯一会写的文件是自己的锁（退出时清理）。
+# 只读为主：读 guard-status.json / guard-events.jsonl；唯一会写的是自己的
+# 单实例锁 pet.lock（0.4.1 起全机一只：已有桌宠在跑时本脚本直接退出）。
 #
 # 生命周期：-WatchPid / -WatchProcess 指定"看护对象"（客户端主进程）。
 # 客户端退出 → 看护对象消失 → 桌宠自己关掉并清锁。不给看护对象则一直留着（手动启动的场景）。
@@ -124,6 +125,23 @@ if ($Probe) {
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+# ── 全机单只（0.4.1 起）：已经有桌宠在跑（pet2 或旧版）就悄悄退出，不再拉第二只 ──
+# 锁由谁写都行（本脚本 / lib/pet.js），格式一致：{ pid, at, client, script }。
+$petLockPath = Join-Path $DataDir 'pet.lock'
+try {
+  if (-not (Test-Path $DataDir)) { New-Item -ItemType Directory -Force -Path $DataDir | Out-Null }
+  if (Test-Path $petLockPath) {
+    $lockJson = Get-Content -Raw -Encoding UTF8 $petLockPath | ConvertFrom-Json
+    if ($lockJson -and $lockJson.pid -and ([int]$lockJson.pid -ne $PID)) {
+      if (Get-Process -Id $lockJson.pid -ErrorAction SilentlyContinue) {
+        exit 0   # 已有一只活着的桌宠，本进程不需要存在
+      }
+    }
+  }
+  $lockObj = @{ pid = $PID; at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); client = $Client; script = 'pet' }
+  [System.IO.File]::WriteAllText($petLockPath, ($lockObj | ConvertTo-Json -Compress))
+} catch { }
+
 $form = New-Object System.Windows.Forms.Form
 $form.FormBorderStyle = 'None'
 $form.TopMost = $true
@@ -239,8 +257,15 @@ function Test-Watched {
 }
 
 function Remove-OwnLock {
-  $lockPath = Join-Path $DataDir ("pet-{0}.lock" -f $Client)
-  try { Remove-Item -Force -ErrorAction SilentlyContinue $lockPath } catch { }
+  # 只删还写着**自己 pid** 的锁：升级替换场景下 pet.lock 可能已归新桌宠所有，不能误删
+  try {
+    if (Test-Path $petLockPath) {
+      $lockJson = Get-Content -Raw -Encoding UTF8 $petLockPath | ConvertFrom-Json
+      if ($lockJson -and ([int]$lockJson.pid -eq $PID)) {
+        Remove-Item -Force -ErrorAction SilentlyContinue $petLockPath
+      }
+    }
+  } catch { }
 }
 
 $lifeTimer = New-Object System.Windows.Forms.Timer

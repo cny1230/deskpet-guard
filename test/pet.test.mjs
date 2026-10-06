@@ -138,69 +138,63 @@ test('launchPet：用 PowerShell 的 Start-Process 分离启动（不是 Node �
   assert.equal(calls[0].opts.detached, true, '父进程退出后桌宠要能活下来')
 })
 
-test('不同客户端各开一只（DSH 有、ZCode 也有），互不顶掉', () => {
+test('全机单只：第二个客户端拉起会被跳过（0.5 起不再每客户端各一只）', () => {
   // 桌宠窗口是 Windows 实现：非 Windows 上 launchPet 会先返回"不支持"，
   // 这些断言在那边没有意义（CI 的 ubuntu 曾因此整条红掉）→ 显式跳过并计数。
   if (process.platform !== 'win32') {
     skipped++
-    console.log('  SKIP  不同客户端各开一只（桌宠为 Windows 实现）')
+    console.log('  SKIP  全机单只（桌宠为 Windows 实现）')
     return
   }
-  const dir = mkdtempSync(join(tmpdir(), 'deskpet-guard-pet-multi-'))
+  const dir = mkdtempSync(join(tmpdir(), 'deskpet-guard-pet-single-'))
   const spawned = []
   const fake = (client) => (cmd, args) => {
     spawned.push({ client, line: args.join(' ') })
-    // 用测试进程自己的 pid 当"假桌宠"：这样锁指向一个**活着**的进程，
-    // 才能验证"同一客户端再拉一次会被跳过"（死 pid 会被判为过期而重新拉起）。
+    // 用测试进程自己的 pid 当"假桌宠"：锁指向一个**活着**的进程，
+    // 才能验证"再拉一次会被跳过"（死 pid 会被判为过期而重新拉起）。
     return { pid: process.pid, unref() {} }
   }
-  const a = launchPet({ dataDir: dir, client: 'zcode', force: true, spawnImpl: fake('zcode') })
-  const b = launchPet({ dataDir: dir, client: 'dsh', force: true, spawnImpl: fake('dsh') })
+  const a = launchPet({ dataDir: dir, client: 'dsh', force: true, processTable: [], spawnImpl: fake('dsh') })
   assert.equal(a.ok, true)
-  assert.equal(b.ok, true)
-  assert.equal(spawned.length, 2, '两个客户端应各拉起一只，而不是共享一只')
-  // 锁文件按客户端分开
-  assert.ok(existsSync(join(dir, 'pet-zcode.lock')), '缺 zcode 的锁')
-  assert.ok(existsSync(join(dir, 'pet-dsh.lock')), '缺 dsh 的锁')
-  // 摆放序号不同 → 窗口不重叠
-  const slot = (line) => Number((line.match(/-Slot','(\d+)'/) || [])[1])
-  assert.notEqual(slot(spawned[0].line), slot(spawned[1].line), '两只桌宠的摆放序号必须不同')
-  // 同一客户端再拉一次 → 跳过（不重复开）
-  const again = launchPet({ dataDir: dir, client: 'dsh', spawnImpl: fake('dsh') })
-  assert.equal(again.skipped, true, '同一客户端不该开出第二只')
-  assert.equal(spawned.length, 2)
+  assert.equal(spawned.length, 1)
+  assert.ok(existsSync(join(dir, 'pet.lock')), '应写全局锁 pet.lock')
+  const b = launchPet({ dataDir: dir, client: 'zcode', processTable: [], spawnImpl: fake('zcode') })
+  assert.equal(b.skipped, true, '第二个客户端不该再拉一只（全机单只）')
+  assert.equal(spawned.length, 1, '桌面上永远只有一只')
+  assert.ok(!existsSync(join(dir, 'pet-zcode.lock')), '不再写 per-client 锁')
   const locks = listPetLocks(dir, { processTable: [] })
-  assert.deepEqual(locks.map((x) => x.client).sort(), ['dsh', 'zcode'])
+  assert.deepEqual(locks.map((x) => x.client), ['global'])
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('launchPet：同一客户端已有活着的实例时跳过', () => {
+test('launchPet：已有活着的桌宠时跳过（全机单只，不分客户端）', () => {
   if (process.platform !== 'win32') {
     skipped++
-    console.log('  SKIP  同一客户端已有活着的实例时跳过（桌宠为 Windows 实现）')
+    console.log('  SKIP  已有活着的桌宠时跳过（桌宠为 Windows 实现）')
     return
   }
-  writeFileSync(join(DATA, 'pet-zcode.lock'), JSON.stringify({ pid: process.pid, at: Date.now(), client: 'zcode' }))
+  writeFileSync(join(DATA, 'pet.lock'), JSON.stringify({ pid: process.pid, at: Date.now(), client: 'zcode' }))
   let spawned = 0
   const r = launchPet({
     dataDir: DATA,
-    client: 'zcode',
+    client: 'dsh',
+    processTable: [],
     spawnImpl: () => {
       spawned++
       return { pid: 1, unref() {} }
     },
   })
-  assert.equal(r.skipped, true, '应识别出已有实例')
+  assert.equal(r.skipped, true, '应识别出已有实例（DSH 来拉也撞上 ZCode 那只的锁）')
   assert.equal(spawned, 0, '不该重复拉起')
 })
 
 test('停掉桌宠后锁被清掉，随即可再次拉起', () => {
   // 用一个"肯定不存在"的 pid 写锁：stopPet 会去 kill 它（失败被吞），并清掉锁。
   // ⚠️ 别用 process.pid 写锁再 stopPet —— 那会把测试进程自己杀掉（踩过）。
-  writeFileSync(join(DATA, 'pet-manual.lock'), JSON.stringify({ pid: 999999, at: Date.now(), client: 'manual' }))
+  writeFileSync(join(DATA, 'pet.lock'), JSON.stringify({ pid: 999999, at: Date.now(), client: 'manual' }))
   const r = stopPet(DATA, 'manual')
   assert.equal(r.ok, true)
-  assert.ok(!existsSync(join(DATA, 'pet-manual.lock')), 'stopPet 应清理锁文件')
+  assert.ok(!existsSync(join(DATA, 'pet.lock')), 'stopPet 应清理锁文件')
   const r2 = launchPet({
     dataDir: DATA,
     client: 'manual',
@@ -231,7 +225,8 @@ test('桌宠脚本存在、带 UTF-8 BOM（Win PowerShell 5.1 读中文必需）
   assert.match(src, /guard-status\.json/, '脚本得读状态快照')
   assert.match(src, /Get-Content -Tail 1/, '脚本得读最近事件')
   assert.match(src, /TopMost/, '桌宠要置顶')
-  assert.ok(!/Set-Content|Add-Content|Out-File/.test(src), '桌宠必须是只读的（不写任何文件）')
+  assert.ok(!/Set-Content|Add-Content|Out-File/.test(src), '桌宠除单实例锁外必须只读（不写任何数据文件）')
+  assert.match(src, /pet\.lock/, '旧版脚本也要参与全机单只锁（已有桌宠在跑时直接退出）')
 })
 
 test('ZCode 插件的 SessionStart hook：不依赖 npx，直接拉起壳里的脚本', () => {
@@ -301,6 +296,10 @@ test('从命令行认出桌宠：解析 client 与看护对象（不再只信锁
   const p = parsePetCmdline(cmd)
   assert.equal(p.client, 'dsh')
   assert.equal(p.watchPid, 47848)
+  assert.equal(p.script, 'pet', '旧脚本要认出是 pet')
+  const p2 = parsePetCmdline('powershell -File D:/x/bin/deskpet-guard-pet2.ps1 -DataDir C:/x -Client mcp -Slot 0')
+  assert.equal(p2.client, 'mcp')
+  assert.equal(p2.script, 'pet2', 'pet2 要认出是 pet2（升级替换的依据）')
   assert.equal(parsePetCmdline('C:/Windows/explorer.exe'), null, '无关进程不能被误判成桌宠')
 })
 
@@ -309,17 +308,19 @@ test('findRunningPets：锁丢了也能按进程发现孤儿桌宠', () => {
     { pid: 10, ppid: 1, name: 'powershell.exe', cmd: 'powershell -File D:/x/bin/deskpet-guard-pet.ps1 -Client zcode -Slot 0' },
     { pid: 11, ppid: 1, name: 'powershell.exe', cmd: 'powershell -File D:/x/bin/deskpet-guard-pet.ps1 -Client dsh -Slot 3' },
     { pid: 12, ppid: 1, name: 'explorer.exe', cmd: 'C:/Windows/explorer.exe' },
+    { pid: 13, ppid: 1, name: 'powershell.exe', cmd: 'powershell -File D:/x/bin/deskpet-guard-pet2.ps1 -Client mcp -Slot 0' },
   ]
   const pets = findRunningPets(table)
-  assert.equal(pets.length, 2, '应认出两只桌宠')
-  assert.deepEqual(pets.map((p) => p.client).sort(), ['dsh', 'zcode'])
+  assert.equal(pets.length, 3, 'pet2 也必须能按进程发现（此前正则只匹配旧脚本名，pet2 全靠锁文件）')
+  assert.deepEqual(pets.map((x) => x.client).sort(), ['dsh', 'mcp', 'zcode'])
+  assert.equal(pets.find((x) => x.pid === 13).script, 'pet2')
 })
 
-test('launchPet：同客户端已有桌宠时接管（补写锁、不重复开）', () => {
+test('launchPet：已有 pet2 在跑 → 接管（补写全局锁、不重复开）', () => {
   const dir = mkdtempSync(join(tmpdir(), 'deskpet-guard-pet-adopt-'))
   let spawned = 0
   const table = [
-    { pid: 4242, ppid: 1, name: 'powershell.exe', cmd: 'powershell -File D:/x/bin/deskpet-guard-pet.ps1 -Client zcode -Slot 0' },
+    { pid: 5150, ppid: 1, name: 'powershell.exe', cmd: 'powershell -File D:/x/bin/deskpet-guard-pet2.ps1 -Client dsh -Slot 0' },
   ]
   const r = launchPet({
     dataDir: dir,
@@ -331,10 +332,35 @@ test('launchPet：同客户端已有桌宠时接管（补写锁、不重复开�
     },
   })
   if (process.platform === 'win32') {
-    assert.equal(r.skipped, true, '应按进程发现并接管，而不是再开一只')
+    assert.equal(r.skipped, true, '应按进程发现并接管，而不是再开一只（全机单只，不分客户端）')
     assert.equal(spawned, 0)
-    assert.equal(r.pid, 4242)
-    assert.ok(existsSync(join(dir, 'pet-zcode.lock')), '接管后应补写锁')
+    assert.equal(r.pid, 5150)
+    assert.ok(existsSync(join(dir, 'pet.lock')), '接管后应补写全局锁')
+  }
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('launchPet：在跑的是旧版文本宠而本机能跑 pet2 → 升级替换（关旧宠、拉 pet2）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'deskpet-guard-pet-upgrade-'))
+  let spawnedLine = ''
+  const table = [
+    // ZCode hook 拉起的旧版文本宠长这样（没有看板页，也常没有锁文件）
+    { pid: 4242424, ppid: 1, name: 'powershell.exe', cmd: 'powershell -File D:/x/bin/deskpet-guard-pet.ps1 -Client zcode -Slot 0' },
+  ]
+  const r = launchPet({
+    dataDir: dir,
+    client: 'mcp',
+    processTable: table,
+    spawnImpl: (cmd, args) => {
+      spawnedLine = args.join(' ')
+      return { pid: 777, unref() {} }
+    },
+  })
+  if (process.platform === 'win32') {
+    assert.equal(r.ok, true, '升级路径应走到全新拉起')
+    assert.equal(r.skipped, undefined, '升级不该被当成"已在运行"跳过')
+    assert.match(spawnedLine, /deskpet-guard-pet2/, '升级后应拉起 pet2（带看板页）')
+    assert.ok(existsSync(join(dir, 'pet.lock')), '升级后应写新锁')
   }
   rmSync(dir, { recursive: true, force: true })
 })
@@ -376,10 +402,34 @@ test('pet2（WebView2 一体窗）：脚本存在、带 UTF-8 BOM、含运行时
   assert.match(src, /EdgeUpdate.Clients/, '应有 WebView2 运行时注册表探测')
   assert.match(src, /deskpet-guard-pet.ps1/, '应有旧版桌宠回退链')
   assert.match(src, /dpg:minimize/, '应处理最小化消息')
-  assert.match(src, /dpg:window-drag/, '应处理拖动消息')
+  assert.match(src, /dpg:window-drag/, '应处理拖动消息（旧看板页兼容）')
+  assert.match(src, /dpg:native-drag/, '应处理原生拖动消息（长按拖动）')
+  assert.match(src, /dpg:quit/, '应处理退出消息（全机单只后需手动退出）')
+  assert.match(src, /ReleaseCapture/, '原生拖动要先释放鼠标捕获')
+  assert.match(src, /TopMost\s*=\s*\$true/, '桌宠必须常驻置顶（全屏应用不能盖住桌宠）')
   assert.match(src, /vendor\\webview2/, '应从随包 vendor 目录加载互操作程序集')
   assert.ok(existsSync(p('vendor/webview2/Microsoft.Web.WebView2.WinForms.dll')), 'vendor 互操作程序集应随包存在')
   assert.ok(existsSync(p('vendor/webview2/WebView2Loader.dll')), '原生加载器应随包存在')
+})
+
+test('dashboard 页（pet2 看板）：面板只从右键菜单开 + 有关闭按钮 + 左键不再开面板', () => {
+  const src = readFileSync(p('assets/dashboard.html'), 'utf8')
+  assert.ok(!/drag&&!drag\.moved\)togglePanel\(\)/.test(src), '左键松开不该再开面板（统一走右键菜单）')
+  assert.match(src, /id="panel-close"/, '面板要有关闭按钮')
+  assert.match(src, /setPanel\(false\)/, '关闭按钮要能把面板收起')
+  assert.match(src, /dpg:native-drag/, 'WebView2 下应请求宿主原生拖动（长按拖动）')
+  assert.match(src, /ctx-dash/, '右键菜单里要有开关看板的入口')
+  assert.match(src, /firstStartMs/, '自动跟随要按"最早启动"选 agent（全机单只）')
+  assert.match(src, /ctx-quit/, '右键菜单里要有退出桌宠入口')
+  assert.match(src, /Codex \/ ChatGPT/, 'codex 与 chatgpt 合并为一个 agent（用户口径）')
+  assert.match(src, /gemini/, 'Gemini 要进面板 agent 列表')
+  assert.match(src, /BAD_MASCOT/, '形象图缺失要自动兜底成 chibi，不留破图')
+  // 回归1：收起态窗口 300x240 装不下菜单，开菜单要把窗口撑到菜单+头像都放得下
+  assert.match(src, /m\.style\.right=/, '菜单要排到桌宠旁边，不能盖住桌宠')
+  assert.match(src, /function closeCtxMenu/, '关菜单要把窗口缩回去')
+  // 回归2：窗口外的点击传不进页面，菜单必须还有别的关闭路径（失焦/Esc/点外面）
+  assert.match(src, /window\.addEventListener\('blur',closeCtxMenu\)/, '失焦要能关菜单')
+  assert.match(src, /Escape/, 'Esc 要能关菜单')
 })
 
 for (const [n, f] of cases) {

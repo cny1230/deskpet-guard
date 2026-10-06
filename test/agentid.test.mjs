@@ -20,6 +20,7 @@ import {
   buildPidResolver,
   attributeScan,
   viewForClient,
+  procTimeMs,
 } from '../lib/agentid.js'
 import { readPetState, petStatusText } from '../lib/pet.js'
 
@@ -242,6 +243,46 @@ test('两只桌宠的数字不再相同（安静时也能区分）', () => {
     [a.perAgent.dsh.procs, a.perAgent.dsh.egress],
     '两只桌宠的计数必须不同，否则就是显示同一份东西（用户实测反馈过）',
   )
+})
+
+test('procTimeMs：兼容 ISO / PS5.1 的 /Date(ms)/ / CIM 原生格式，解析不了返回 0', () => {
+  assert.ok(procTimeMs('2026-10-03T10:30:00+08:00') > 0, 'ISO 应能解析')
+  assert.equal(procTimeMs('/Date(1696063446123)/'), 1696063446123)
+  // CIM 原生：2026-10-03 10:30:00（UTC+8）→ UTC 毫秒
+  assert.equal(procTimeMs('20261003103000.000000+480'), Date.UTC(2026, 9, 3, 10, 30, 0) - 480 * 60000)
+  assert.equal(procTimeMs(''), 0)
+  assert.equal(procTimeMs(null), 0)
+  assert.equal(procTimeMs('T-A'), 0, 'kill 测试用的占位串不该被解析成时间')
+})
+
+test('attributeScan：perAgent.firstStartMs = 该 agent 最早进程的启动时间（全机单只桌宠跟随第一个启动）', () => {
+  const details = [
+    { pid: 10, ppid: 1, name: 'ZCode.exe', cmd: 'ZCode.exe', createdAt: '/Date(2000)/' },
+    { pid: 11, ppid: 10, name: 'node.exe', cmd: 'node mcp', createdAt: '/Date(3000)/' },
+    { pid: 20, ppid: 1, name: 'DeepSeek Harness.exe', cmd: 'dsh', createdAt: '/Date(1000)/' },
+  ]
+  const a = attributeScan(
+    { findings: [], killTargets: [] },
+    { resolvePid: buildPidResolver(details), procDetails: details, connections: [], bundles: [] },
+  )
+  assert.equal(a.perAgent.dsh.firstStartMs, 1000, 'DSH 进程最早 → 它就是"第一个启动的 agent"')
+  assert.equal(a.perAgent.zcode.firstStartMs, 2000, '同 agent 多进程取最早')
+  assert.equal(a.perAgent.unknown, undefined, '全部归属时不应凭空出现 unknown')
+  // 只认得出进程名不给归属是铁律：归属依赖 pid 解析器/cmdline，这里补上，专测时间解析失败
+  const bare = [{ pid: 10, ppid: 1, name: 'ZCode.exe', cmd: 'ZCode.exe', createdAt: 'T-A' }]
+  const b = attributeScan(
+    { findings: [], killTargets: [] },
+    { resolvePid: buildPidResolver(bare), procDetails: bare },
+  )
+  assert.equal(b.perAgent.zcode.firstStartMs, 0, '解析不了时间要如实给 0，让页面退回优先级')
+})
+
+test('ChatGPT 桌面端并入 codex（同一个 agent），Gemini 独立识别', () => {
+  assert.equal(agentOfProcess('ChatGPT.exe'), 'codex')
+  assert.equal(agentOfProcess('codex.exe'), 'codex')
+  assert.equal(agentOfProcess('Gemini.exe'), 'gemini')
+  assert.equal(agentOfCommandLine('node C:/npm/@google/gemini-cli/bin/gemini.js'), 'gemini')
+  assert.equal(agentOfCommandLine('C:/Users/x/AppData/Local/Programs/ChatGPT/ChatGPT.exe'), 'codex')
 })
 
 for (const [n, f] of cases) {

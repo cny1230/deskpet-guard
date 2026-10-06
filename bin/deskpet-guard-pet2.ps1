@@ -1,14 +1,15 @@
 ﻿# deskpet-guard — WebView2 一体桌宠窗口（0.4.0 阶段 1b）
 #
 # 一个无边框窗口 = 桌宠形象 + 思考泡 + 就地展开的监控看板（加载采样守护托管的看板页）。
-# 页面里的交互（左键看板/右键菜单/思考泡）由看板页自己实现；本脚本只负责：
-#   · 宿主窗口（无边框、透明底、默认右下角、可最小化到任务栏）
-#   · postMessage 桥：dpg:minimize / dpg:window-drag(dx,dy 增量) / dpg:reset-pos
+# 页面里的交互（右键菜单/思考泡）由看板页自己实现；本脚本只负责：
+#   · 宿主窗口（无边框、透明底、**常驻置顶**、默认右下角、可最小化到任务栏）
+#   · postMessage 桥：dpg:minimize / dpg:native-drag(长按拖动，系统级移动循环) /
+#     dpg:window-drag(dx,dy 增量，旧看板页兼容) / dpg:reset-pos
 #
 # 参数：
 #   -DataDir <目录>     数据目录（读 endpoint.json 找看板；WebView2 用户数据也放这）
 #   -Client <名字>      客户端标识（写日志用）
-#   -TopMost            置顶显示（默认不置顶）
+#   -TopMost            已废弃：窗口现在**常驻置顶**，参数仅为兼容旧调用保留
 #   -Width/-Height      窗口尺寸（默认 460x780）
 #
 # 兜底：缺 WebView2 运行时 / 互操作程序集时，自动转投旧版桌宠脚本（pet.ps1）。
@@ -38,6 +39,12 @@ public class DwmAccent {
   public struct WCAData { public int Attribute; public IntPtr Data; public int SizeOfData; }
   [DllImport("user32.dll")]
   public static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WCAData data);
+}
+public class NativeInput {
+  [DllImport("user32.dll")]
+  public static extern bool ReleaseCapture();
+  [DllImport("user32.dll")]
+  public static extern int SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
 }
 "@ -ErrorAction SilentlyContinue
 
@@ -72,6 +79,19 @@ function Log($msg) {
   } catch {}
 }
 
+# 回退旧版桌宠：只透传 pet.ps1 认识的参数。不能直接 @PSBoundParameters——
+# 它没有 -TopMost/-Width/-Height 参数（绑定失败脚本直接起不来），而空 -DataDir
+# 会覆盖它自己的默认数据目录。
+function Start-OldPet {
+  $oldArgs = @('-NoProfile','-STA','-ExecutionPolicy','Bypass','-File',(Join-Path $here 'deskpet-guard-pet.ps1'))
+  if ($DataDir) { $oldArgs += @('-DataDir', $DataDir) }
+  if ($Client) { $oldArgs += @('-Client', $Client) }
+  $oldArgs += @('-Slot', $Slot)
+  if ($WatchPid -gt 0) { $oldArgs += @('-WatchPid', $WatchPid) }
+  if ($WatchProcess) { $oldArgs += @('-WatchProcess', $WatchProcess) }
+  & powershell.exe @oldArgs
+}
+
 Log ('pet2 启动 client=' + $Client + ' dataDir=' + $DataDir)
 
 # ── 1) WebView2 运行时探测（Evergreen：注册表 pv；没有就回退旧桌宠）──
@@ -88,7 +108,7 @@ foreach ($key in @(
 }
 if (-not $pv) {
   Log '未检测到 WebView2 运行时 → 回退旧版桌宠'
-  & powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File (Join-Path $here 'deskpet-guard-pet.ps1') @PSBoundParameters
+  Start-OldPet
   exit $LASTEXITCODE
 }
 Log ('WebView2 运行时 pv=' + $pv)
@@ -96,7 +116,7 @@ Log ('WebView2 运行时 pv=' + $pv)
 # ── 2) 加载互操作程序集（随包 vendor；原生加载器目录加进搜索路径）──
 if (-not (Test-Path (Join-Path $vendor 'Microsoft.Web.WebView2.WinForms.dll'))) {
   Log '缺互操作程序集 → 回退旧版桌宠'
-  & powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File (Join-Path $here 'deskpet-guard-pet.ps1') @PSBoundParameters
+  Start-OldPet
   exit $LASTEXITCODE
 }
 $env:PATH = $vendor + ';' + $env:PATH   # 原生 WebView2Loader.dll 的探测路径
@@ -129,7 +149,7 @@ $form = New-Object System.Windows.Forms.Form
 $form.Text = 'deskpet-guard'
 $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
 $form.ShowInTaskbar = $true
-$form.TopMost = [bool]$TopMost
+$form.TopMost = $true   # 常驻置顶：全屏应用也不许盖住桌宠（-TopMost 参数仅为兼容保留，现在只有"置顶"一档）
 $form.StartPosition = 'Manual'
 $form.BackColor = [System.Drawing.Color]::Black
 $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
@@ -170,6 +190,18 @@ $wv.add_CoreWebView2InitializationCompleted({
         $j = $ev.WebMessageAsJson | ConvertFrom-Json
         switch ($j.type) {
           'dpg:minimize' { $form.WindowState = [System.Windows.Forms.FormWindowState]::Minimized }
+          'dpg:quit' {
+            # 全机单只后桌宠不再随某个客户端退出而关，得给用户留个手动退出口
+            $form.Close()
+          }
+          'dpg:native-drag' {
+            # 长按拖动：把窗口交给 Windows 的模态移动循环（WM_NCLBUTTONDOWN + HTCAPTION），
+            # 按住即拖、松手即停，不依赖页面持续上报（增量方案在窗口一动时输入捕获就断）。
+            try {
+              [void][NativeInput]::ReleaseCapture()
+              [void][NativeInput]::SendMessage($form.Handle, 0xA1, [IntPtr]2, [IntPtr]0)   # WM_NCLBUTTONDOWN, HTCAPTION
+            } catch { Log ('原生拖动失败: ' + $_.Exception.Message) }
+          }
           'dpg:window-drag' {
             $form.Location = New-Object System.Drawing.Point(
               ($form.Location.X + [int]$j.dx), ($form.Location.Y + [int]$j.dy))
@@ -196,5 +228,19 @@ $wv.add_CoreWebView2InitializationCompleted({
 })
 
 Log '进入消息循环'
+# 退出时清掉还写着**自己 pid** 的单实例锁（升级替换场景下锁可能已归别人，不能误删）
+$form.Add_FormClosed({
+  try {
+    if ($DataDir) {
+      $lockPath = Join-Path $DataDir 'pet.lock'
+      if (Test-Path $lockPath) {
+        $lockJson = Get-Content -Raw -Encoding UTF8 $lockPath | ConvertFrom-Json
+        if ($lockJson -and ([int]$lockJson.pid -eq $PID)) {
+          Remove-Item -Force -ErrorAction SilentlyContinue $lockPath
+        }
+      }
+    }
+  } catch { }
+})
 [void]$form.ShowDialog()
 Log '窗体关闭，退出'
